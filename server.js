@@ -1,14 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Health check - أول endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', port: PORT, hasApiKey: !!process.env.ANTHROPIC_API_KEY });
+});
 
 // Proxy endpoint - يحمي الـ API Key
 app.post('/api/analyze', async (req, res) => {
@@ -19,7 +24,16 @@ app.post('/api/analyze', async (req, res) => {
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Use dynamic import for node-fetch if native fetch not available
+    let fetchFn;
+    if (typeof fetch !== 'undefined') {
+      fetchFn = fetch;
+    } else {
+      const nodeFetch = require('node-fetch');
+      fetchFn = nodeFetch;
+    }
+
+    const response = await fetchFn('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -32,6 +46,7 @@ app.post('/api/analyze', async (req, res) => {
     const data = await response.json();
     res.json(data);
   } catch (error) {
+    console.error('API Error:', error.message);
     res.status(500).json({ error: 'Failed to connect to API: ' + error.message });
   }
 });
@@ -43,15 +58,31 @@ app.post('/api/search', (req, res) => {
   res.json({ success: true, code });
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', hasApiKey: !!process.env.ANTHROPIC_API_KEY });
-});
-
+// Serve index.html for root
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+// Catch all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Error handling
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+});
+
+// Start server
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Health check: http://0.0.0.0:${PORT}/api/health`);
+});
+
+server.on('error', (err) => {
+  console.error('Server error:', err);
 });
