@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>فارز IC</title>
+<title>مصنّف الذاكرة</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -671,7 +671,7 @@
 <!-- API Key on server - no screen needed -->
 
 <div class="header">
-  <div class="header-logo">⚡ فارز IC</div>
+  <div class="header-logo">البحراوي | لتصنيف الذواكر ⚡</div>
   <div class="header-count">الجلسة: <span id="sessionCount">0</span> قطعة</div>
 </div>
 
@@ -772,9 +772,9 @@
 
 <script>
 // ═══════════════════════════════════════
-// EXCEL DATA (UFS - عادي)
+// EXCEL DATA (عادي)
 // ═══════════════════════════════════════
-const UFS_DB = {"8+1D2":["TP64A8","TP65A8","US-B410","7U-B309","18C-8G","28B-8G","28C-8G","JY938","JWB11","221640","231624","KMK7X000VM-B314","08EMCP08-EL2BV100","08EMCP08-EL2CV100"],"8+1":["KMF720012M-B214","KMQ72000SM-B316","KMFNX0012M-B214","KMFN10012M-B214","KMQN1000SM-B316","NW006A-B316","N10012A-B214","N60012B-B214","KMFN60012M-B214","KMQ7X000SA-B315","KMQNW000SM-B316","KMQN6000SM-B316","H9TQ64A8GTACUR-KUM","H9TQ64A8GTCCUR-KUM","H9TQ64A8GTMCUR-KUM","H9TQ64A8GTDCUR-KUM","H9TQ65A8GTACUR-KUM","TYD0GH121661RA","TYD0GH121644RA","TYD0GH121651RA","TYD0GH221664RA","221644","221651","08EMCP08-NL3DT227","08EMCP08-EL3DT527","08EMCP08-EL3DT227","08EMCP08-EL3BS100","08EMCP08-EL3BT100","08EMCP08-EL3BT227","08EMCP08-EL3BV100","08EMCP08-EL2DM327","08EMCP08-EL3CV100","08EMCP08-EL3AV100","SD9DS28K-8G","28J-8G","JWA60","JY941","JZ099","JY974"],"8+1.5":["KMQN10006B-B318","KMQN10006M-B318","H9TQ64AAETAC-KUM","H9TQ64AAETMC-KUM"],"8+2":["KMQN10013M-B318","KMR7X0001M-B510","KMR7X0001M-B511","KMRNW0001M-B509","H9TQ64ABJTMCUR"],"16+1正码":["KMF310012M-B305","KMF820012M-B305","KMQ82000SM-B418","KMQ8X000SA-B414","KMFE10012M-B214","KMFE60012M-B214"],"16+1杂码":["E60012A-B214","KMQ31000SM-B417","H9TQ17A8GTMCUR","TYD0HH231632RC","TYD0HH121662RA","16EMCP08-EL3BT527","16EMCP08-NL3DT527","16EMCP08-EL3CV100","16EMCP08-NL3DTB28","SDADB48K-16G","JZ089"],"16+1.5":["KMQ310006A-B419","KMQ310006B-B419","KMQ31006M-B417","KMQE6006M-B318","H9TQ17AAETACUR"],"16+2":["KMQ310013B-B419","KMQE60013B-B318","KMQ310013M-B419","KMQ820013M-B419","KMR310001M-B611","KMR820001M-B609","KMR8X0001A-B609","KMR8X0001M-B608","KMQE10013M-B318","KMQE60013M-B318","H9TQ17ABJTACUR","H9TQ17ABJTBCUR","H9TQ17ABJTCCUR","H9TQ17ABJTMCUR","H9TQ18ABJTMCUR","037-125BT","024-125BT","038-107BT","041-107BT","040-107BT","038-125BT"],"16+2杂码":["82001M-B612","TYEOHH221657RA","TYE0HH221668RA","TYE0HH231659RA","JY932","JY952","JZ008","JY977","JY950","JZ024","JZ094","16EMCP16-EL3CV100","16EMCP16-ML3BM500","16EMCP16-EL3DT527","16EMCP16-3GM610","16EMCP16-3GTB28","16EMCP16-3ETD28","16ENCP16-3DTB28","16EMCP16-3DTA28","16EMCP16-NL3E527","SDADF4AP-16G","SDADL2AP-16G"],"16+3":["KMR31000BA-B614","KMR31000BM-B611","KMRE1000BM-B512","KMGE6001BM-B421","H9TQ17ADFTACUR","H9TQ17ADFTBCUR","H9TQ17ADFTMCUR","JZ011","JZ006","3100BB-B614"],"32+2":["KMQX60013A-B419","KMQ4Z0013M-B809","KMQX10013M-B419","KMQX60013M-B419","H9TQ26ABJTACUR","H9TQ26ABJTBCUR","H9TQ26ABJTMCUR","KMQD60013M-B318","H9TQ27ABJTMCUR","072-107BT"],"32+2杂码":["KMQ210013M-B615","KMR4Z0001A-B803","KMR4Z0001M-B802","KMR4Z00MM-B801","TYE0IH231658RA","JZ025","JZ002","JZ007","JZ012","JZ014"],"32+2D4":["H9HP27ABKMMDAR","H9HP27ABUMMDAR","KM4X6001KM-B321"],"32+3":["KMGX6001BA-B514","KMR21000BM-B809","KMRX1000BM-B614","KMGX6001BM-B514","KMGD6001BM-B421","H9TQ26ADFTACUR","H9TQ26ADFTBCUR","H9TQ27ADFTMCUR","JZ013","JZ050","SDADL28P-32G","JZ004","046-107BT","046-125BT","045-107BT","073-107BT"],"32+3杂码":["H9TQ26ADFTMCUR","JZ050"],"32+3D4":["KMDD60018M-B320","H9HP27ADAMADAR","KMDX10018M-B420","KMDX60018M-B425","H9AG8GDMNB*113","JZ018","JZ083","018-125BT","084-075BT"],"32+4":["KMRX10014M-B614","KMRX60014M-B614","KMRD60014M-B512","H9TQ26ACLTMCUR"],"32+4D4":["X10016A-B617","X10016M-B619","TQ27AC","H9HP27ACVUMDARKLM","H9HP26ACVUMDARKLM","KMDX6001DM-B422"],"64+3":["KMRC1000BM-B809","KMGP6001BM-B514","H9TQ52ADFTMCUR","KMGP6001BA-B514","PA094"],"64+3D4":["KM5H80018M-B424","KMDP60018M-B425","JZ090","HP52AD","HQ53AD","JZ185"],"64+4":["KMRC10014M-B809","KMRH60014M-B614","KMRH60014A-B614","KMRP60014M-B614","KMRP60014A-B614","H9TQ52ACLTMCUR","H9TQ53ACLTMCUR","JZ049","JZ128","069-107BT","096-107BT","PA107-107BT","PA070"],"64+4D4":["H9HP52ACPMMDARKMM","H9HP52ACPMADARKMM","KMDH6001DM-B422","KMDH6001DA-B422","KMDP6001DA-B425","KMDP6001DB-B425","KMWC10016M-B812","H9AG9G5ANB","HP53AC","JZ186","JZ481","JZ484","JZ109","JZ053","022-18BT","PG023","022-062BT","022-053BT","090-053BT","PA112","183-053BT"],"64+4UMCP":["HQ52AC","H9HQ53ACPMMDAR","H9HQ54ACPMMDAR","JZ177","KM5H7001DM-B424","KM5P9001DM-B424","KM5P8001DM-B424","KM5C7001DM-B622","KMDC6001DM-B625"],"64+6":["KM3H6001CM-B515","KM3H6001CA-B515","H9HP52AECMMDBRKMM","H9HP52AECMMDARKMM","H9HQ53AECMMDARKEM","H9HQ54AECMMDAR","KMWC10017M-B812","JZ052","086-075BT","PA087"],"64+6UMCP":["UMCP  4DR-64G","KM3P6001CM-B517","KM2H7001CM-B518","KM2P9001CM-B518","JZ168"],"128+4UMCP":["KM5L9001DM-B424","KM5V7001DM-B621","HQ15AC","HQ16AC","JZ150","JZ385"],"128+4":["KMRV50014M-B809","KMWV50017M-B812","KMDV6001DB-B625","KMDV6001DM-B620","KMDV6001DA-B620","JZ103","JZ187","JZ182","HP16AC","093-053BT","092-053BT","PA110","092-153BT","110-053BT"],"128+6":["KM3V6001CM-B705","H9HP16AECMMDARKMM","V6001CA-B708","V6001CB-B708","JZ188","JZ105","JZ114","PA124","PA104","2Q7001CM-BB01"],"128+6UMCP":["KM2V7001CM-B706","KM2V8001CM-B707","H9HQ16AECMMDARKEM","H9HQ15AECMADAR","H9HQ15AECMBDAR","KM5V8001DM-B622","KM2L9001CM-B518","JZ100","JZ151","JZ386"],"128+8":["JZ387","JZ152","JZ266","H9HQ16AFAMMDAR","H9HQ15AFAMBDRA","H9HQ15AFAMADRA","V7001JM-B810","KM8V7001JM-B810","KM8V7001JA-B813","KM8V8001JM-B813","KM8V9001JM-B813","KMWV6001JM-B817","KM8L9001JM-B624"],"128+8D5":["KMAG9001PM-B814"],"256+6":["H9HQ22AECMMDARKEM","KM2B8001CM-BB01","H9HQ21AECMZDAR"],"256+8":["H9QT1G6DN6","KM8B8001JM-BC01","KMF800JM-B813","H9HQ21AFAMADARKEM","H9HQ21AFAMZDARKEM","H9HQ22AFAMMDARKEM","KM8F9001JM-B813","JZ171","JZ396"],"256+8D5":["KMAS9001PM-BC02","JZ361"],"256+12":["KM8F8001MM-B813","H9QT1GGBN6","H9QT1GGDN6"],"256+12D5":["JZ303","KMJS9001RM-BG01"],"16+1D2":["3U00VM-B410","TP17A8","28B-16G","3U-B304","2U-B604","TS-B604","YL-B503","YL-B603","8U00VM-B410","8X00VM-B412","251623","231633","TP18A8"],"16+2D2":["8U00MA-B605","TP17AB","8X00MM-B606","9X00RM-B209","9W00RM-B205"],"32+1D2":["TP26A8"],"32+2D2":["TP26AB","2U000MA-B800"],"4+1":["006-25BT"]};
+const NORMAL_DB = {"8+1D2": ["TP64A8", "TP65A8", "US-B410", "7U-B309", "18C-8G", "28B-8G", "28C-8G", "JY938", "JWB11", "221640", "231624", "KMK7X000VM-B314", "08EMCP08-EL2BV100", "08EMCP08-EL2CV100"], "8+1": ["KMF720012M-B214", "KMQ72000SM-B316", "KMFNX0012M-B214", "KMFN10012M-B214", "KMQN1000SM-B316", "NW006A-B316", "N10012A-B214", "N60012B-B214", "KMFN60012M-B214", "KMQ7X000SA-B315", "KMQNW000SM-B316", "KMQN6000SM-B316", "H9TQ64A8GTACUR-KUM", "H9TQ64A8GTCCUR-KUM", "H9TQ64A8GTMCUR-KUM", "H9TQ64A8GTDCUR-KUM", "H9TQ65A8GTACUR-KUM", "TYD0GH121661RA", "TYD0GH121644RA", "TYD0GH121651RA", "TYD0GH221664RA", "221644", "221651", "08EMCP08-NL3DT227", "08EMCP08-EL3DT527", "08EMCP08-EL3DT227", "08EMCP08-EL3BS100", "08EMCP08-EL3BT100", "08EMCP08-EL3BT227", "08EMCP08-EL3BV100", "08EMCP08-EL2DM327", "08EMCP08-EL3CV100", "08EMCP08-EL3AV100", "SD9DS28K-8G", "28J-8G", "JWA60", "JY941", "JZ099", "JY974"], "8+1.5": ["KMQN10006B-B318", "KMQN10006M-B318", "H9TQ64AAETAC-KUM", "H9TQ64AAETMC-KUM"], "8+2": ["KMQN10013M-B318", "KMR7X0001M-B510", "KMR7X0001M-B511", "KMRNW0001M-B509", "H9TQ64ABJTMCUR"], "16+1正码": ["KMF310012M-B305", "KMF820012M-B305", "KMQ82000SM-B418", "KMQ8X000SA-B414", "KMFE10012M-B214", "KMFE60012M-B214"], "16+1杂码": ["E60012A-B214", "KMQ31000SM-B417", "H9TQ17A8GTMCUR", "TYD0HH231632RC", "TYD0HH121662RA", "16EMCP08-EL3BT527", "16EMCP08-NL3DT527", "16EMCP08-EL3CV100", "16EMCP08-NL3DTB28", "SDADB48K-16G", "JZ089"], "16+1.5": ["KMQ310006A-B419", "KMQ310006B-B419", "KMQ31006M-B417", "KMQE6006M-B318", "H9TQ17AAETACUR"], "16+2": ["KMQ310013B-B419", "KMQE60013B-B318", "KMQ310013M-B419", "KMQ820013M-B419", "KMR310001M-B611", "KMR820001M-B609", "KMR8X0001A-B609", "KMR8X0001M-B608", "KMQE10013M-B318", "KMQE60013M-B318", "H9TQ17ABJTACUR", "H9TQ17ABJTBCUR", "H9TQ17ABJTCCUR", "H9TQ17ABJTMCUR", "H9TQ18ABJTMCUR", "037-125BT", "024-125BT", "038-107BT", "041-107BT", "040-107BT", "038-125BT"], "16+2杂码": ["82001M-B612", "TYEOHH221657RA", "TYE0HH221668RA", "TYE0HH231659RA", "JY932", "JY952", "JZ008", "JY977", "JY950", "JZ024", "JZ094", "16EMCP16-EL3CV100", "16EMCP16-ML3BM500", "16EMCP16-EL3DT527", "16EMCP16-3GM610", "16EMCP16-3GTB28", "16EMCP16-3ETD28", "16ENCP16-3DTB28", "16EMCP16-3DTA28", "16EMCP16-NL3E527", "SDADF4AP-16G", "SDADL2AP-16G"], "16+3": ["KMR31000BA-B614", "KMR31000BM-B611", "KMRE1000BM-B512", "KMGE6001BM-B421", "H9TQ17ADFTACUR", "H9TQ17ADFTBCUR", "H9TQ17ADFTMCUR", "JZ011", "JZ006", "3100BB-B614"], "32+2": ["KMQX60013A-B419", "KMQ4Z0013M-B809", "KMQX10013M-B419", "KMQX60013M-B419", "H9TQ26ABJTACUR", "H9TQ26ABJTBCUR", "H9TQ26ABJTMCUR", "KMQD60013M-B318", "H9TQ27ABJTMCUR", "072-107BT"], "32+2杂码": ["KMQ210013M-B615", "KMR4Z0001A-B803", "KMR4Z0001M-B802", "KMR4Z00MM-B801", "TYE0IH231658RA", "JZ025", "JZ002", "JZ007", "JZ012", "JZ014"], "32+2D4": ["H9HP27ABKMMDAR", "H9HP27ABUMMDAR", "KM4X6001KM-B321"], "32+3": ["KMGX6001BA-B514", "KMR21000BM-B809", "KMRX1000BM-B614", "KMGX6001BM-B514", "KMGD6001BM-B421", "H9TQ26ADFTACUR", "H9TQ26ADFTBCUR", "H9TQ27ADFTMCUR", "JZ013", "JZ050", "SDADL28P-32G", "JZ004", "046-107BT", "046-125BT", "045-107BT", "073-107BT"], "32+3杂码": ["H9TQ26ADFTMCUR", "JZ050"], "32+3D4": ["KMDD60018M-B320", "H9HP27ADAMADAR", "KMDX10018M-B420", "KMDX60018M-B425", "H9AG8GDMNB*113", "JZ018", "JZ083", "018-125BT", "084-075BT"], "32+4": ["KMRX10014M-B614", "KMRX60014M-B614", "KMRD60014M-B512", "H9TQ26ACLTMCUR"], "32+4D4": ["X10016A-B617", "X10016M-B619", "TQ27AC", "H9HP27ACVUMDARKLM", "H9HP26ACVUMDARKLM", "KMDX6001DM-B422"], "64+3": ["KMRC1000BM-B809", "KMGP6001BM-B514", "H9TQ52ADFTMCUR", "KMGP6001BA-B514", "PA094"], "64+3D4": ["KM5H80018M-B424", "KMDP60018M-B425", "JZ090", "HP52AD", "HQ53AD", "JZ185"], "64+4": ["KMRC10014M-B809", "KMRH60014M-B614", "KMRH60014A-B614", "KMRP60014M-B614", "KMRP60014A-B614", "H9TQ52ACLTMCUR", "H9TQ53ACLTMCUR", "JZ049", "JZ128", "069-107BT", "096-107BT", "PA107-107BT", "PA070"], "64+4D4": ["H9HP52ACPMMDARKMM", "H9HP52ACPMADARKMM", "KMDH6001DM-B422", "KMDH6001DA-B422", "KMDP6001DA-B425", "KMDP6001DB-B425", "KMWC10016M-B812", "H9AG9G5ANB", "HP53AC", "JZ186", "JZ481", "JZ484", "JZ109", "JZ053", "022-18BT", "PG023", "022-062BT", "022-053BT", "090-053BT", "PA112", "183-053BT"], "64+4UMCP": ["HQ52AC", "H9HQ53ACPMMDAR", "H9HQ54ACPMMDAR", "JZ177", "KM5H7001DM-B424", "KM5P9001DM-B424", "KM5P8001DM-B424", "KM5C7001DM-B622", "KMDC6001DM-B625"], "64+6": ["KM3H6001CM-B515", "KM3H6001CA-B515", "H9HP52AECMMDBRKMM", "H9HP52AECMMDARKMM", "H9HQ53AECMMDARKEM", "H9HQ54AECMMDAR", "KMWC10017M-B812", "JZ052", "086-075BT", "PA087"], "64+6UMCP": ["UMCP  4DR-64G", "KM3P6001CM-B517", "KM2H7001CM-B518", "KM2P9001CM-B518", "JZ168"], "128+4UMCP": ["KM5L9001DM-B424", "KM5V7001DM-B621", "HQ15AC", "HQ16AC", "JZ150", "JZ385"], "128+4": ["KMRV50014M-B809", "KMWV50017M-B812", "KMDV6001DB-B625", "KMDV6001DM-B620", "KMDV6001DA-B620", "JZ103", "JZ187", "JZ182", "HP16AC", "093-053BT", "092-053BT", "PA110", "092-153BT", "110-053BT"], "128+6": ["KM3V6001CM-B705", "H9HP16AECMMDARKMM", "V6001CA-B708", "V6001CB-B708", "JZ188", "JZ105", "JZ114", "PA124", "PA104", "2Q7001CM-BB01"], "128+6UMCP": ["KM2V7001CM-B706", "KM2V8001CM-B707", "H9HQ16AECMMDARKEM", "H9HQ15AECMADAR", "H9HQ15AECMBDAR", "KM5V8001DM-B622", "KM2L9001CM-B518", "JZ100", "JZ151", "JZ386"], "128+8": ["JZ387", "JZ152", "JZ266", "H9HQ16AFAMMDAR", "H9HQ15AFAMBDRA", "H9HQ15AFAMADRA", "V7001JM-B810", "KM8V7001JM-B810", "KM8V7001JA-B813", "KM8V8001JM-B813", "KM8V9001JM-B813", "KMWV6001JM-B817", "KM8L9001JM-B624"], "128+8D5": ["KMAG9001PM-B814"], "256+6": ["H9HQ22AECMMDARKEM", "KM2B8001CM-BB01", "H9HQ21AECMZDAR"], "256+8": ["H9QT1G6DN6", "KM8B8001JM-BC01", "KMF800JM-B813", "H9HQ21AFAMADARKEM", "H9HQ21AFAMZDARKEM", "H9HQ22AFAMMDARKEM", "KM8F9001JM-B813", "JZ171", "JZ396"], "256+8D5": ["KMAS9001PM-BC02", "JZ361"], "256+12": ["KM8F8001MM-B813", "H9QT1GGBN6", "H9QT1GGDN6"], "256+12D5": ["JZ303", "KMJS9001RM-BG01"]};
 
 // EMMC زجاجي - الجدول الكبير (90%)
 const EMMC_DB = {
@@ -790,7 +790,7 @@ const EMMC_DB = {
 const MICRON_DB = {"8":["JWA60","JW687"],"16":["JW788"],"32":["JZ132"],"64":["JZ023","JZ160","JZ495","JZ075","JZ178","JZ196","JZ528"],"128":["JZ057","JZ144","JZ156","JZ064","JZ380","JZ341","JZ417","JZ447","JZ413"],"256":["JZ067","JZ161","JZ369","JZ418","JZ449","JZ348","JZ242","JZ459"],"512":["JZ347"]};
 
 // الاختصارات
-const SHORTCUT_SIZE = {"AG":"16","BG":"32","CG":"64","DG":"128","EG":"256","FG":"512","G7":"16","G8":"32","G9":"64","T0":"128","T1":"256","T2":"512","05G":"32","06G":"64","07G":"128","M5":"16","U6":"32","M6":"32","U7":"64","S7":"64","M7":"64","U8":"128","S8":"128","T8":"128","S9":"256"};
+const SHORTCUT_SIZE = {"AG":"16","BG":"32","CG":"64","DG":"128","EG":"256","FG":"512","G7":"16","G8":"32","G9":"64","T0":"128","T1":"256","T2":"512","05G":"32","06G":"64","07G":"128","M5":"16","U6":"32","M6":"32","U7":"64","S7":"64","M7":"64","U8":"128","S8":"128","T8":"128","S9":"256","ADFTMC":"16","ADFTBC":"32","ADFTAC":"64","ADFTA6":"128","ADFTD6":"256"};
 
 // أكواد غير معروفة
 let unknownCodes = JSON.parse(localStorage.getItem('unknownCodes') || '[]');
@@ -973,8 +973,8 @@ function searchInDB(code) {
   if (!code) return null;
   const codeUpper = code.toUpperCase().trim();
   
-  // 1. Search UFS (عادي) first
-  for (const [capacity, codes] of Object.entries(UFS_DB)) {
+  // 1. Search عادي first
+  for (const [capacity, codes] of Object.entries(NORMAL_DB)) {
     for (const c of codes) {
       if (codeUpper === c.toUpperCase() || codeUpper.startsWith(c.toUpperCase().split('-')[0])) {
         return { capacity, type: 'عادي', raw: capacity };
@@ -1000,12 +1000,59 @@ function searchInDB(code) {
     }
   }
   
-  // 4. Try shortcuts (for partial/unclear codes)
-  for (const [key, size] of Object.entries(SHORTCUT_SIZE)) {
-    if (codeUpper.includes(key.toUpperCase())) {
-      return { storage: size, type: 'زجاجي', fromShortcut: true };
+  // 4. Try shortcuts - العادي first (by company)
+  // Samsung (KM): حرف قبل 100/200/600/700/800/900
+  if (codeUpper.startsWith('KM')) {
+    const samsungMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
+    const m = codeUpper.match(/([NEXDCHPGVFS])(100|200|600|700|800|900)/);
+    if (m && samsungMap[m[1]]) return { storage: samsungMap[m[1]], type: 'عادي', fromShortcut: true };
+  }
+  
+  // SK Hynix (H9): الرقم في السطر الثاني بعد أول 4 حروف
+  if (codeUpper.startsWith('H9')) {
+    const hynixMap = {'17':'16','18':'16','19':'16','26':'32','27':'32','52':'64','53':'64','16':'128'};
+    const num = codeUpper.substring(4, 6);
+    if (hynixMap[num]) return { storage: hynixMap[num], type: 'عادي', fromShortcut: true };
+  }
+  
+  // SanDisk (SDIN): المساحة صريحة في الكود
+  if (codeUpper.startsWith('SDIN')) {
+    const m = codeUpper.match(/(16G|32G|64G|128G|256G|512G)/);
+    if (m) return { storage: m[1].replace('G',''), type: 'عادي', fromShortcut: true };
+  }
+  
+  // Samsung EMMC (KLM/KLU): حرف في السطر الثالث
+  if (codeUpper.startsWith('KLM') || codeUpper.startsWith('KLU')) {
+    const emmcMap = {'AG':'16','BG':'32','CG':'64','DG':'128','EG':'256','FG':'512'};
+    for (const [k,v] of Object.entries(emmcMap)) {
+      if (codeUpper.includes(k)) return { storage: v, type: 'زجاجي', fromShortcut: true };
     }
   }
+  
+  // Toshiba (THG): حرفين في السطر الثالث
+  if (codeUpper.startsWith('THG') || codeUpper.startsWith('THGB') || codeUpper.startsWith('THGA')) {
+    const toshibaMap = {'G7':'16','G8':'32','G9':'64','T0':'128','T1':'256','T2':'512'};
+    for (const [k,v] of Object.entries(toshibaMap)) {
+      if (codeUpper.includes(k)) return { storage: v, type: 'زجاجي', fromShortcut: true };
+    }
+  }
+  
+  // SK Hynix EMMC (H26/H28): الرقم بعد H26M أو H28
+  if (codeUpper.startsWith('H26') || codeUpper.startsWith('H28')) {
+    const hynixEmmcMap = {'54':'16','64':'32','74':'64','88':'128','9':'256'};
+    const m = codeUpper.match(/H2[68][A-Z]?(\d+)/);
+    if (m) {
+      const num = m[1].substring(0,2);
+      const num1 = m[1].substring(0,1);
+      if (hynixEmmcMap[num]) return { storage: hynixEmmcMap[num], type: 'زجاجي', fromShortcut: true };
+      if (hynixEmmcMap[num1]) return { storage: hynixEmmcMap[num1], type: 'زجاجي', fromShortcut: true };
+    }
+  }
+  
+  // UNIC: آخر سطر
+  if (codeUpper.endsWith('05G')) return { storage: '32', type: 'زجاجي', fromShortcut: true };
+  if (codeUpper.endsWith('06G')) return { storage: '64', type: 'زجاجي', fromShortcut: true };
+  if (codeUpper.endsWith('07G')) return { storage: '128', type: 'زجاجي', fromShortcut: true };
   
   // 5. Unknown - save for later
   if (code && code.length > 3) {
@@ -1019,7 +1066,7 @@ function searchInDB(code) {
 }
 
 function parseCapacity(capacity, type) {
-  // Normalize display for UFS
+  // Normalize display for عادي
   let storage = '', ram = '';
   
   if (type === 'زجاجي') {
@@ -1028,7 +1075,7 @@ function parseCapacity(capacity, type) {
     return { storage, ram };
   }
   
-  // UFS parsing
+  // عادي parsing
   const raw = capacity;
   if (raw.includes('+')) {
     const parts = raw.split('+');
@@ -1068,27 +1115,28 @@ async function analyzeImage(base64, previewSrc) {
     img.classList.add('show');
   }
 
-  const systemPrompt = `أنت خبير في قراءة شرائح IC للموبايل.
+  const systemPrompt = `أنت خبير في تحليل وتصنيف شرائح الذاكرة IC في الموبايل.
 
-قواعد قراءة الكود:
-- SKhynix: السطر الثاني
-- Samsung/SEC: السطر الثالث
-- SanDisk TAIWAN: السطر الثاني
-- SanDisk CHINA: السطر الثالث
-- Kingston عادي: السطر الرابع من اليسار
-- Kingston زجاجي: السطر الرابع من المنتصف
-- YMEC: السطر الأخير، C6=32GB, C7=64GB, C8=128GB
-- Toshiba THGB: رقم بعد G (7=16GB, 8=32GB, 9=64GB)
+مهمتك:
+1. تجاهل تماماً أي شريحة غير الذاكرة (Qualcomm, Snapdragon, Mediatek, وأي IC تاني)
+2. ركز فقط على شريحة الذاكرة
+3. اقرأ الكود المكتوب عليها بالكامل
+4. أرجع الكود فقط بدون أي كلام تاني
 
-تعرف على شكل البورد:
-- لو البورد شكله طويل رفيع أزرق بتصميم Samsung = samsung_slim
-- لو البورد شكله مربع عريض أزرق بتصميم Samsung = samsung_wide
-- لو IC عريض مع كود Micron D9xxx = ram_only
+قواعد قراءة الكود حسب الشركة:
+- Samsung (KM): الكود في السطر الثالث
+- SK Hynix (H9): الكود في السطر الثاني
+- SanDisk (SDIN): لو مكتوب Taiwan = السطر الثاني، لو China = السطر الثالث
+- Toshiba (THG): الكود في السطر الثالث
+- Samsung EMMC (KLM/KLU): الكود في السطر الثالث
+- SK Hynix EMMC (H26/H28): الكود كامل
+- Micron (JW/JZ): الكود كامل
+- UNIC: الكود في آخر سطر
 
 رد بـ JSON فقط:
-{"code": "الكود", "company": "الشركة", "board_type": "normal/samsung_slim/samsung_wide/ram_only"}
+{"code": "الكود الكامل", "company": "اسم الشركة"}
 
-إذا مش واضح: {"code": "", "company": "", "board_type": "normal"}`;
+إذا مش واضح: {"code": "", "company": ""}`;
 
   try {
     const res = await fetch('/api/analyze', {
@@ -1137,6 +1185,11 @@ function searchManual() {
   const code = document.getElementById('manualCode').value.trim();
   if (!code) return;
   currentCode = code;
+  
+  // إخفاء الصورة القديمة عند البحث اليدوي
+  const img = document.getElementById('imgPreview');
+  img.src = '';
+  img.classList.remove('show');
   
   const found = searchInDB(code);
   showResult(false);
