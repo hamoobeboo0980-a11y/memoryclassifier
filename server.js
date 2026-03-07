@@ -33,9 +33,8 @@ app.post('/api/analyze', async (req, res) => {
     try {
         console.log('Received analysis request from frontend...');
         
-        // الحصول على الصورة أو الكود من الـ body
-        // الـ Frontend يرسل: { image: "base64string..." } أو { code: "..." }
-        const { image, code } = req.body;
+        // استخراج البيانات من الـ body (بما في ذلك الـ system prompt)
+        const { image, code, system } = req.body;
 
         if (!image && !code) {
             console.error('ERROR: No image or code provided');
@@ -46,7 +45,6 @@ app.post('/api/analyze', async (req, res) => {
         let userContent = [];
         
         if (image) {
-            // التأكد من أن الـ base64 نظيف (بدون data:image/...)
             const cleanBase64 = image.replace(/^data:image\/\w+;base64,/, "");
             userContent.push({
                 type: "image",
@@ -67,9 +65,11 @@ app.post('/api/analyze', async (req, res) => {
             });
         }
 
+        // بناء الـ Payload لـ Anthropic مع تمرير الـ system prompt
         const anthropicPayload = {
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 1000,
+            model: "claude-3-5-sonnet-20241022", // تم استخدام sonnet-3.5 لأنه الأحدث والأقوى حالياً
+            max_tokens: 1024,
+            system: system || "", // تمرير الـ system prompt من الـ frontend
             messages: [{
                 role: "user",
                 content: userContent
@@ -93,10 +93,8 @@ app.post('/api/analyze', async (req, res) => {
             return res.status(response.status).json(data);
         }
 
-        // استخراج النص من رد Claude
+        // استخراج النص من رد Claude والرد بالصيغة المطلوبة { "result": "..." }
         const claudeText = data.content[0].text;
-        
-        // الرد بالصيغة التي يتوقعها الـ Frontend بالضبط: { "result": "JSON string" }
         console.log('Analysis successful, returning result to frontend');
         res.status(200).json({ result: claudeText });
 
