@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const fetch = require('node-fetch');
+const fetch = require('node-fetch'); // التأكد من استيراد node-fetch
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -52,14 +52,15 @@ app.post('/api/analyze', async (req, res) => {
         const data = await response.json();
         
         if (!response.ok) {
-            console.error('Anthropic API Error:', data);
+            console.error('Anthropic API Error Status:', response.status);
+            console.error('Anthropic API Error Data:', JSON.stringify(data));
             return res.status(response.status).json(data);
         }
 
         console.log('Analysis successful');
         res.status(200).json(data);
     } catch (error) {
-        console.error('Proxy Exception:', error);
+        console.error('Proxy Exception Details:', error);
         res.status(500).json({ 
             error: 'Failed to connect to AI service.',
             details: error.message 
