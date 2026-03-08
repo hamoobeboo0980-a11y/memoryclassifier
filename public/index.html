@@ -1175,10 +1175,14 @@ STEP 3: Based on what you read, identify the code:
 - YMEC (bottom-left, 5th char is number): read full - 6=32GB, 7=64GB, 8=128GB, 9=256GB
 - UNIC (last line 05G/06G/07G): read last line
 
-IMPORTANT: Never say you cannot see. Always write what you see even if not 100% clear. Only if the image is completely unreadable, return empty code.
+CRITICAL RULES:
+1. You MUST always write what you see. NEVER return empty code unless the image is completely black.
+2. Search carefully for the memory IC - it is ALWAYS there in the image.
+3. Even if blurry or rotated, make your best attempt and return what you see.
+4. Do NOT say cannot see. Always return your best reading.
 
 Respond ONLY: {"code":"EXACT_CODE","company":"COMPANY"}
-If truly cannot read anything: {"code":"","company":""}`;
+If truly completely black image: {"code":"","company":""}`;
 
   try {
     var API_KEY = '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';
@@ -1193,7 +1197,7 @@ If truly cannot read anything: {"code":"","company":""}`;
       },
       body:JSON.stringify({
         model:'claude-opus-4-6',
-        max_tokens:100,
+        max_tokens:1000,
         system: readPrompt,
         messages:[{role:'user', content:[
           {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
