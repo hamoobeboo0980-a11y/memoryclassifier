@@ -978,7 +978,25 @@ function uploadImage(e) {
   const reader = new FileReader();
   reader.onload = ev => {
     const full = ev.target.result;
-    analyzeImage(full.split(',')[1], full);
+    // تحويل الصورة لـ JPEG دايماً عشان Claude يقراها صح
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      // حجم مناسب - مش كبير جداً ولا صغير
+      const maxSize = 1200;
+      let w = img.width, h = img.height;
+      if (w > maxSize || h > maxSize) {
+        if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+        else { w = Math.round(w * maxSize / h); h = maxSize; }
+      }
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const jpeg = canvas.toDataURL('image/jpeg', 0.95);
+      analyzeImage(jpeg.split(',')[1], jpeg);
+    };
+    img.src = full;
   };
   reader.readAsDataURL(file);
 }
@@ -1071,11 +1089,12 @@ function searchInDB(code) {
   if (codeUpper.endsWith('06G')) return { storage: '64', type: 'زجاجي', fromShortcut: true };
   if (codeUpper.endsWith('07G')) return { storage: '128', type: 'زجاجي', fromShortcut: true };
   
-  // YMEC
-  if (codeUpper === 'YMEC6') return { storage: '32', type: 'زجاجي', fromShortcut: true };
-  if (codeUpper === 'YMEC7') return { storage: '64', type: 'زجاجي', fromShortcut: true };
-  if (codeUpper === 'YMEC8') return { storage: '128', type: 'زجاجي', fromShortcut: true };
-  if (codeUpper === 'YMEC9') return { storage: '256', type: 'زجاجي', fromShortcut: true };
+  // YMEC - الحرف الخامس يحدد المساحة
+  if (codeUpper.startsWith('YMEC') && codeUpper.length >= 5) {
+    const ymecMap = {'6':'32','7':'64','8':'128','9':'256'};
+    const ymecNum = codeUpper[4];
+    if (ymecMap[ymecNum]) return { storage: ymecMap[ymecNum], type: 'زجاجي', fromShortcut: true };
+  }
   
   // 5. Unknown - save for later
   if (code && code.length > 3) {
@@ -1216,7 +1235,15 @@ If truly completely black image: {"code":"","company":""}`;
 
     var text = data.content && data.content[0] ? data.content[0].text : '';
     var parsed;
-    try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
+    try {
+      // استخرج الـ JSON من النص حتى لو فيه كلام قبله أو بعده
+      var jsonMatch = text.match(/\{[^{}]*"code"[^{}]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+      }
+    }
     catch(e) { parsed = {code:'', company:''}; }
 
     lastParsed = parsed;
@@ -1225,20 +1252,61 @@ If truly completely black image: {"code":"","company":""}`;
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
 
-    if (!detectedCode) {
-      showLoading(false);
-      addChatMsg('المساعد', '❓ مش شايف الكود - صوّر أقرب أو اكتبه يدوي', 'bot');
-      showError('❌ مش شايف الكود');
-      isAnalyzing = false;
-      return;
-    }
-
-    if (detectedCode && !isValidCode(detectedCode)) {
-      showLoading(false);
-      addChatMsg('المساعد', '❓ كود مش واضح: "' + detectedCode + '" - صوّر أقرب', 'bot');
-      showError('❌ الكود مش واضح');
-      isAnalyzing = false;
-      return;
+    // لو ما لقاش كود - حاول تاني بـ prompt أقوى
+    if (!detectedCode || (detectedCode && !isValidCode(detectedCode))) {
+      var retryRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'x-api-key':API_KEY,
+          'anthropic-version':'2023-06-01',
+          'anthropic-dangerous-direct-browser-access':'true'
+        },
+        body:JSON.stringify({
+          model:'claude-opus-4-6',
+          max_tokens:1000,
+          system: `You are examining a circuit board image. There is a memory IC chip on it.
+IMPORTANT: You MUST find and read the memory chip code. It is always there.
+- Ignore CPU, GPU, Qualcomm, Snapdragon, Mediatek completely
+- Look carefully at ALL chips on the board
+- The memory chip usually has: Samsung/SK Hynix/Toshiba/SanDisk/Kingston/Micron/YMTC/UNIC written on it
+- Read every letter and number you can see, even if rotated or blurry
+- Samsung (KM/KLM/KLU), Hynix (H9/H26/H28), Toshiba (THG), SanDisk (SDIN), Micron (JW/JZ), YMTC (YMEC)
+You MUST return a code. Never return empty.
+Respond ONLY: {"code":"BEST_CODE_YOU_CAN_READ","company":"COMPANY"}`,
+          messages:[{role:'user', content:[
+            {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
+            {type:'text', text:'Find and read the memory chip code. It is there, look carefully.'}
+          ]}]
+        })
+      });
+      var retryData = await retryRes.json();
+      var retryText = retryData.content && retryData.content[0] ? retryData.content[0].text : '';
+      var retryParsed;
+      try {
+        var retryJsonMatch = retryText.match(/\{[^{}]*"code"[^{}]*\}/);
+        if (retryJsonMatch) {
+          retryParsed = JSON.parse(retryJsonMatch[0]);
+        } else {
+          retryParsed = JSON.parse(retryText.replace(/```json|```/g,'').trim());
+        }
+      }
+      catch(e) { retryParsed = {code:'', company:''}; }
+      
+      if (retryParsed.code && isValidCode(retryParsed.code)) {
+        parsed = retryParsed;
+        detectedCode = retryParsed.code;
+        currentCode = detectedCode;
+        lastParsed = parsed;
+        var manualInput2 = document.getElementById('manualCode');
+        if (manualInput2) manualInput2.value = detectedCode;
+      } else {
+        showLoading(false);
+        addChatMsg('المساعد', '❓ مش شايف الكود - صوّر أقرب أو اكتبه يدوي', 'bot');
+        showError('❌ مش شايف الكود');
+        isAnalyzing = false;
+        return;
+      }
     }
 
     // ===== المرحلة الثانية: دور في البيانات الأول =====
@@ -1545,7 +1613,7 @@ async function toggleFlash() {
 
 
 // ===== VALID CODE PREFIXES FOR VALIDATION =====
-var VALID_PREFIXES = ['KM','H9','THG','SDIN','KLM','KLU','H26','H28','HN8','JW','JZ','YMEC','16EM','32EM','64EM'];
+var VALID_PREFIXES = ['KM','H9','THG','SDIN','KLM','KLU','H26','H28','HN8','JW','JZ','YMEC','UNIC','EMMC','16EM','32EM','64EM','128E','256E','KING','KING','EM0','EM1','EM2','EM3','EM4','EM5','EM6','EM7','EM8','EM9'];
 
 function isValidCode(code) {
   if (!code || code.length < 4) return false;
@@ -1741,7 +1809,14 @@ async function processChat(userMsg) {
     var text = data.content && data.content[0] ? data.content[0].text : '';
     
     var parsed;
-    try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
+    try {
+      var jsonMatch = text.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      } else {
+        parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+      }
+    }
     catch(e) { parsed = {learned:false, message:text}; }
 
     var box = document.getElementById('chatMessages');
