@@ -1605,41 +1605,83 @@ function addChatMsg(from, text, role) {
 
 async function processChat(userMsg) {
   var lower = userMsg.toLowerCase();
-  
-  // Check if user is correcting the classification
-  var correctionKeywords = ['زجاجي','عادي','غلط','صح','كود','kingston','samsung','hynix','toshiba','sandisk','micron','ymec','unic','klm','klu','km','h9','thg','sdin','jz','jw','hn8','emmc'];
-  var isCorrection = correctionKeywords.some(function(k){ return lower.includes(k); });
 
   if (!lastBase64) {
     addChatMsg('المساعد', 'صوّر شريحة الأول ثم كلمني 📸', 'bot');
     return;
   }
 
+  // ===== لو المستخدم بيقول له كود - ابحث فيه في البيانات أول =====
+  var mentionedCode = userMsg.trim().split(/\s+/).find(function(w) {
+    return w.length >= 4 && isValidCode(w);
+  });
+
+  if (mentionedCode) {
+    var dbResult = searchInDB(mentionedCode);
+    if (dbResult) {
+      displayResult(mentionedCode, dbResult, '');
+      currentCode = mentionedCode;
+      var manualInput = document.getElementById('manualCode');
+      if (manualInput) manualInput.value = mentionedCode;
+      addChatMsg('المساعد', '✅ لقيته في البيانات: ' + mentionedCode + ' → ' + (dbResult.storage || dbResult.capacity) + ' GB ' + dbResult.type, 'bot');
+      return;
+    }
+  }
+
+  // ===== لو عنده كود من قبل - دور فيه في البيانات =====
+  if (lastParsed && lastParsed.code) {
+    var existingResult = searchInDB(lastParsed.code);
+    if (existingResult && !mentionedCode) {
+      displayResult(lastParsed.code, existingResult, lastParsed.company || '');
+      currentCode = lastParsed.code;
+      addChatMsg('المساعد', '✅ ' + lastParsed.code + ' → ' + (existingResult.storage || existingResult.capacity) + ' GB ' + existingResult.type, 'bot');
+      return;
+    }
+  }
+
+  // ===== دور في التعلم بتاعه =====
+  if (mentionedCode) {
+    var learned = [];
+    try { var s = localStorage.getItem('ic_learned'); if(s) learned = JSON.parse(s); } catch(e){}
+    var learnedResult = learned.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
+    if (learnedResult) {
+      addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedResult.storage || '?') + ' GB ' + (learnedResult.type === 'glass' ? 'زجاجي' : 'عادي'), 'bot');
+      return;
+    }
+  }
+
+  // ===== مش لاقيه - اسأل Claude =====
   addChatMsg('المساعد', '⏳ جاري التحليل...', 'bot');
 
   try {
     var API_KEY = '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';
 
-    var systemChat = `You are an IC memory chip classification assistant. 
-The user is a professional technician who is teaching you about chip identification.
-You help classify chips from images, and you learn from the technician's corrections.
+    var systemChat = `أنت مساعد تصنيف شرائح ذاكرة موبايل. المستخدم فني محترف يعلمك.
 
-Current image was just captured. Previous classification: ${lastParsed ? JSON.stringify(lastParsed) : 'none'}.
+الكود المكتشف سابقاً: ${lastParsed ? JSON.stringify(lastParsed) : 'لا يوجد'}.
 
-If user is correcting you (saying the chip type or code), extract:
-1. The correct code (if mentioned)
-2. The correct type (normal/glass)  
-3. The correct company
+قواعد مهمة:
+- تجاهل تماماً: Qualcomm, Snapdragon, Mediatek, CPU, ARM, GPU
+- ركز فقط على شريحة الذاكرة (EMMC/UFS/NAND)
+- Samsung NORMAL (KM): اقرأ السطر الثالث
+- Samsung EMMC (KLM/KLU): اقرأ السطر الثاني والثالث  
+- SK Hynix NORMAL (H9): اقرأ الكود كامل
+- SK Hynix EMMC (H26/H28/HN8): اقرأ الكود كامل
+- SanDisk TAIWAN (SDIN): اقرأ السطر الثاني - عادي
+- SanDisk CHINA (SDIN): اقرأ السطر الثاني - زجاجي
+- Toshiba TAIWAN (THG): اقرأ السطر الثالث - عادي
+- Toshiba JAPAN (THG): اقرأ السطر الثالث - زجاجي
+- Kingston TAIWAN: اقرأ السطر الرابع على الشمال - عادي
+- Micron (JW/JZ): اقرأ الكود كامل - زجاجي
+- YMEC: آخر سطر على الشمال - الرقم الخامس يحدد المساحة: 6=32GB, 7=64GB, 8=128GB, 9=256GB - زجاجي
+- UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB - زجاجي
 
-Respond in Arabic. If it's a correction, confirm what you learned.
-If user asks a question, answer it.
-If unsure about something in the image, ask specifically.
+لو المستخدم بيصحح: استخرج الكود والشركة والنوع.
+لو مش عارف: اسأل سؤال واحد محدد فقط عن الكود المكتوب.
 
-ALWAYS respond in this format for corrections:
-{"learned": true, "code": "EXACT_CODE", "company": "COMPANY", "type": "normal/glass", "message": "تمام! تعلّمت إن ده [company] [type] كود [code]"}
-
-For regular chat:
-{"learned": false, "message": "your Arabic response"}`;
+رد بالعربي دايماً.
+للتصحيح: {"learned": true, "code": "EXACT_CODE", "company": "COMPANY", "type": "normal/glass", "message": "رسالتك"}
+للشات: {"learned": false, "message": "رسالتك"}`;
 
     var msgs = [{
       role: 'user',
@@ -1667,18 +1709,16 @@ For regular chat:
     try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
     catch(e) { parsed = {learned:false, message:text}; }
 
-    // Remove loading message
     var box = document.getElementById('chatMessages');
     if (box && box.lastChild) box.removeChild(box.lastChild);
 
     addChatMsg('المساعد', parsed.message || text, 'bot');
 
-    // If correction - save as learned example
+    // لو بيصحح - احفظ في التعلم
     if (parsed.learned && parsed.code && lastBase64) {
       try {
         var savedL = localStorage.getItem('ic_learned');
         var learned = savedL ? JSON.parse(savedL) : [];
-        // Save both correct and wrong version for learning
         var wrongCode = lastParsed ? lastParsed.code : '';
         learned.push({
           b64: lastBase64,
@@ -1690,19 +1730,15 @@ For regular chat:
         });
         if (learned.length > 30) learned.shift();
         localStorage.setItem('ic_learned', JSON.stringify(learned));
-        // حفظ على السحابة - مش بيضيع
         jbinSave(learned);
         sessionStats.corrected++;
         sessionStats.corrected > 0 && renderStats();
-        
-        // Update the result display
         var found = searchInDB(parsed.code);
         displayResult(parsed.code, found, parsed.company);
         var manualInput = document.getElementById('manualCode');
         if (manualInput) manualInput.value = parsed.code;
         currentCode = parsed.code;
-        
-        addChatMsg('المساعد', '✅ تم الحفظ كمثال جديد! هعرفها المرة الجاية 🧠', 'bot');
+        addChatMsg('المساعد', '✅ تم الحفظ! هعرفها المرة الجاية 🧠', 'bot');
       } catch(e) {}
     }
 
