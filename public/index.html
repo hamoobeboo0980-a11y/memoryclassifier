@@ -1176,12 +1176,16 @@ async function analyzeImage(base64, previewSrc) {
     }
     
     const text = data.content?.[0]?.text || '';
+    console.log('Claude رد:', text);
     
     let parsed;
     try {
       const clean = text.replace(/```json|```/g, '').trim();
       parsed = JSON.parse(clean);
-    } catch { parsed = { code: '', company: '' }; }
+    } catch { 
+      // لو مش JSON خد النص كده زي ما هو كـ code
+      parsed = { code: text.trim().split('\n')[0].trim(), company: '' };
+    }
 
     const detectedCode = parsed.code || '';
     currentCode = detectedCode;
