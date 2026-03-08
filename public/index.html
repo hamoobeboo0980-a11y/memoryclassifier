@@ -1174,34 +1174,68 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   // ===== المرحلة الأولى: اقرأ الكود من الصورة بس =====
-  var readPrompt = `You are an expert IC memory chip CODE READER only.
+  var readPrompt = `You are an expert mobile phone memory IC chip analyst with 20 years experience.
 
-STEP 1: Find the memory/storage IC only. Completely ignore CPU, GPU, Qualcomm, Snapdragon, Mediatek, ARM.
+STEP 1: Find the MEMORY IC only. Ignore CPU/GPU/Qualcomm/Snapdragon/Mediatek/ARM completely.
 
-STEP 2: Focus carefully on the memory IC and read every character engraved on it with extreme attention. Write down every letter and number you can see.
+STEP 2: Read every character on the memory IC carefully.
 
-STEP 3: Based on what you read, identify the code:
-- Samsung NORMAL (KM...): read LINE 3
-- SK Hynix NORMAL (H9...): read full code
-- SanDisk NORMAL (SDIN+TAIWAN): read LINE 2
-- Toshiba NORMAL (THG+TAIWAN): read LINE 3
-- Kingston NORMAL (TAIWAN): read LINE 4 left
-- Samsung EMMC (KLM or KLU): read LINE 2-3
-- SK Hynix EMMC (H26/H28/HN8): read full
-- Toshiba GLASS (THG+JAPAN): read LINE 3
-- SanDisk GLASS (SDIN+CHINA): read LINE 2
-- Micron (JW/JZ): read full
-- YMEC (bottom-left, 5th char is number): read full - 6=32GB, 7=64GB, 8=128GB, 9=256GB
-- UNIC (last line 05G/06G/07G): read last line
+STEP 3: Read the correct line based on company:
+- Samsung NORMAL (KM): LINE 3 is the code
+- Samsung EMMC (KLM/KLU): LINE 2-3 is the code
+- SK Hynix NORMAL (H9): full code
+- SK Hynix EMMC (H26/H28/HN8): full code
+- SanDisk TAIWAN (SDIN): LINE 2
+- SanDisk CHINA (SDIN): LINE 2
+- Toshiba TAIWAN (THG): LINE 3
+- Toshiba JAPAN (THG): LINE 3
+- Kingston (TAIWAN): LINE 4 left side
+- Micron (JW/JZ): full code
+- YMEC: bottom-left last line, full code
+- UNIC: last line
+
+STEP 4: Determine storage size from the code:
+Samsung NORMAL (KM) - letter before 000/100/200/600/700/800/900:
+  N=8GB, E=16GB, X=32GB, D=32GB, C=64GB, H=64GB, P=64GB, G=128GB, V=128GB, F=256GB, S=256GB
+
+Samsung EMMC (KLM/KLU) - look for these 2-letter combos:
+  AG=16GB, BG=32GB, CG=64GB, DG=128GB, EG=256GB, FG=512GB
+
+SK Hynix NORMAL (H9) - digits at position 5-6:
+  17/18/19=16GB, 26/27=32GB, 52/53=64GB
+
+SK Hynix EMMC (H26/H28) - number after H26/H28:
+  54=16GB, 64=32GB, 74=64GB, 88=128GB
+
+SanDisk (SDIN) - storage written explicitly in code: 16G/32G/64G/128G/256G/512G
+
+Toshiba (THG) - look for these combos:
+  G7=16GB, G8=32GB, G9=64GB, T0=128GB, T1=256GB, T2=512GB
+
+YMEC - 5th character: 6=32GB, 7=64GB, 8=128GB, 9=256GB, always GLASS type
+
+UNIC - ends with: 05G=32GB, 06G=64GB, 07G=128GB, always GLASS type
+
+STEP 5: Determine type:
+- If chip has JAPAN or CHINA written = GLASS (زجاجي)
+- If chip has TAIWAN written = NORMAL (عادي)
+- Samsung KLM/KLU = always GLASS
+- H26/H28/HN8 = always GLASS
+- YMEC = always GLASS
+- UNIC = always GLASS
+- Samsung KM = always NORMAL
+- H9 = always NORMAL
 
 CRITICAL RULES:
-1. You MUST always write what you see. NEVER return empty code unless the image is completely black.
-2. Search carefully for the memory IC - it is ALWAYS there in the image.
-3. Even if blurry or rotated, make your best attempt and return what you see.
-4. Do NOT say cannot see. Always return your best reading.
+1. ALWAYS return the code - NEVER return empty unless image is completely black
+2. ALWAYS return storage if you can determine it
+3. ALWAYS return type (normal/glass)
+4. Even if blurry - return your best reading
 
-Respond ONLY: {"code":"EXACT_CODE","company":"COMPANY"}
-If truly completely black image: {"code":"","company":""}`;
+Respond ONLY with this JSON, nothing else:
+{"code":"EXACT_CODE","company":"COMPANY","storage":"SIZE_IN_GB_NUMBER_ONLY","type":"normal or glass"}
+If storage cannot be determined: {"code":"EXACT_CODE","company":"COMPANY","storage":"","type":"normal or glass"}
+If completely black image only: {"code":"","company":"","storage":"","type":""}`;
 
   try {
     var API_KEY = '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';
@@ -1359,13 +1393,25 @@ Respond ONLY: {"code":"BEST_CODE_YOU_CAN_READ","company":"COMPANY"}`,
       }
     }
 
-    // ===== المرحلة الرابعة: مش في البيانات ومش في التعلم - اسأل =====
-    updateStats(parsed.company, false);
-    showLoading(false);
-    displayResult(detectedCode, null, parsed.company);
-    sessionCount++;
-    document.getElementById('sessionCount').textContent = sessionCount;
-    addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - مش في بياناتي ولا في تعلمي - قولي إيه نوعه', 'bot');
+    // ===== المرحلة الرابعة: مش في البيانات - استخدم اللي Claude حلله مباشرة =====
+    if (parsed.storage && parsed.storage !== '') {
+      // Claude عرف المساحة من الكود - عرضها مباشرة
+      var claudeType = (parsed.type === 'glass') ? 'زجاجي' : 'عادي';
+      updateStats(parsed.company, true);
+      showLoading(false);
+      displayResult(detectedCode, {storage: parsed.storage, type: claudeType}, parsed.company);
+      sessionCount++;
+      document.getElementById('sessionCount').textContent = sessionCount;
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' → ' + parsed.storage + ' GB ' + claudeType + ' - لو غلطت قولي الصح', 'bot');
+    } else {
+      // Claude مش عارف المساحة - اسأل
+      updateStats(parsed.company, false);
+      showLoading(false);
+      displayResult(detectedCode, null, parsed.company);
+      sessionCount++;
+      document.getElementById('sessionCount').textContent = sessionCount;
+      addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
+    }
 
   } catch(e) {
     showLoading(false);
@@ -1712,8 +1758,28 @@ async function processChat(userMsg) {
     }
   }
 
-  // ===== لو عنده كود من قبل - دور فيه في البيانات =====
+  // ===== لو عنده كود من قبل - بس لو المستخدم بيصحح النوع اسمعه =====
+  var isGlassCorrection = lower.includes('زجاجي') || lower.includes('glass');
+  var isNormalCorrection = lower.includes('عادي') || lower.includes('normal');
+
   if (lastParsed && lastParsed.code && !mentionedCode) {
+    // لو المستخدم بيصحح النوع - اسمعه وحفظ
+    if (isGlassCorrection || isNormalCorrection) {
+      var existingResult2 = searchInDB(lastParsed.code);
+      var storage2 = existingResult2 ? (existingResult2.storage || existingResult2.capacity || '?') : '?';
+      var newType = isGlassCorrection ? 'زجاجي' : 'عادي';
+      // احفظ التصحيح
+      var savedL2 = localStorage.getItem('ic_learned');
+      var learnedList2 = savedL2 ? JSON.parse(savedL2) : [];
+      learnedList2.push({ b64: lastBase64, code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true });
+      if (learnedList2.length > 50) learnedList2.shift();
+      localStorage.setItem('ic_learned', JSON.stringify(learnedList2));
+      jbinSave(learnedList2);
+      displayResult(lastParsed.code, {storage: storage2, type: newType}, lastParsed.company || '');
+      currentCode = lastParsed.code;
+      addChatMsg('المساعد', '✅ تم التصحيح! ' + lastParsed.code + ' → ' + storage2 + ' GB ' + newType + ' 🧠', 'bot');
+      return;
+    }
     var existingResult = searchInDB(lastParsed.code);
     if (existingResult) {
       displayResult(lastParsed.code, existingResult, lastParsed.company || '');
@@ -1724,7 +1790,7 @@ async function processChat(userMsg) {
   }
 
   // ===== لو المستخدم بيقول تفاصيل الشركة والمساحة - احفظها =====
-  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb)/i);
+  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
   var isGlass = lower.includes('زجاجي') || lower.includes('glass');
   var isNormal = lower.includes('عادي') || lower.includes('normal');
   var codeToSave = mentionedCode || (lastParsed && lastParsed.code) || currentCode;
@@ -1758,33 +1824,58 @@ async function processChat(userMsg) {
   try {
     var API_KEY = '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';
 
-    var systemChat = `أنت قارئ كود شرائح ذاكرة موبايل متخصص.
+    var systemChat = `أنت خبير متخصص في شرائح ذاكرة الموبايل (eMMC/UFS/NAND). اسمك "البحراوي".
+عندك خبرة 20 سنة في قراءة وتصنيف شرائح الذاكرة في مراكز إصلاح الموبايل.
 
-الخطوة الأولى: ابحث عن IC الذاكرة فقط وتجاهل CPU وGPU تماماً.
-الخطوة الثانية: ركز على الكود المنقوش على IC الذاكرة بعناية شديدة واكتب كل حرف تراه.
-الخطوة الثالثة: حدد الكود الصحيح حسب الشركة:
-- Samsung NORMAL (KM): اقرأ السطر الثالث
-- Samsung EMMC (KLM/KLU): اقرأ السطر الثاني والثالث
-- SK Hynix NORMAL (H9): اقرأ الكود كامل
-- SK Hynix EMMC (H26/H28/HN8): اقرأ الكود كامل
-- SanDisk TAIWAN (SDIN): اقرأ السطر الثاني - عادي
-- SanDisk CHINA (SDIN): اقرأ السطر الثاني - زجاجي
-- Toshiba TAIWAN (THG): اقرأ السطر الثالث - عادي
-- Toshiba JAPAN (THG): اقرأ السطر الثالث - زجاجي
-- Kingston TAIWAN: اقرأ السطر الرابع على الشمال
-- Micron (JW/JZ): اقرأ الكود كامل
-- YMEC: آخر سطر على الشمال - الحرف الخامس رقم: 6=32GB, 7=64GB, 8=128GB, 9=256GB
-- UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB
+=== مهمتك الأساسية ===
+لما تشوف صورة بورد موبايل:
+1. ابحث عن IC الذاكرة - تجاهل CPU/GPU/Qualcomm/Snapdragon/Mediatek تماماً
+2. اقرأ الكود على IC الذاكرة بعناية - كل حرف وكل رقم
+3. حدد المساحة والنوع (عادي/زجاجي)
 
-مهم جداً: لا تقل مش شايف أبداً. اكتب كل اللي تشوفه حتى لو مش واضح 100%.
-لو الصورة وحشة جداً ومش قادر تقرأ أي حاجة - وقتها بس أرجع كود فاضي.
+=== قواعد القراءة حسب الشركة ===
+Samsung عادي (KM): السطر الثالث هو الكود - الحرف قبل 000/100/200/600/700/800/900 يحدد المساحة:
+  N=8GB, E=16GB, X=32GB, D=32GB, C=64GB, H=64GB, P=64GB, G=128GB, V=128GB, F=256GB, S=256GB
 
-لو المستخدم بيصحح: استخرج الكود والشركة والنوع.
+Samsung زجاجي (KLM/KLU): السطر الثاني والثالث - AG=16GB, BG=32GB, CG=64GB, DG=128GB, EG=256GB, FG=512GB
 
-رد بالعربي دايماً.
-لو قرأت كود جديد: {"newcode": "EXACT_CODE", "company": "COMPANY", "learned": false, "message": "شايف الكود: EXACT_CODE"}
-لو المستخدم بيصحح: {"learned": true, "code": "EXACT_CODE", "company": "COMPANY", "type": "normal/glass", "message": "رسالتك"}
-للشات العادي: {"learned": false, "message": "رسالتك"}`;
+SK Hynix عادي (H9): اقرأ الكود كامل - الرقمين في الموضع 5-6:
+  17/18/19=16GB, 26/27=32GB, 52/53=64GB
+
+SK Hynix زجاجي (H26/H28/HN8): اقرأ الكود كامل
+
+SanDisk عادي (SDIN+TAIWAN): السطر الثاني - المساحة مكتوبة صريحة (16G/32G/64G/128G)
+SanDisk زجاجي (SDIN+CHINA): السطر الثاني - نفس الطريقة
+
+Toshiba عادي (THG+TAIWAN): السطر الثالث - G7=16GB, G8=32GB, G9=64GB, T0=128GB, T1=256GB, T2=512GB
+Toshiba زجاجي (THG+JAPAN): نفس الطريقة
+
+Kingston (TAIWAN): السطر الرابع على اليسار
+
+Micron (JW/JZ): اقرأ الكود كامل
+
+YMEC: آخر سطر على اليسار - الحرف الخامس: 6=32GB, 7=64GB, 8=128GB, 9=256GB - نوعه زجاجي دايماً
+
+UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB - نوعه زجاجي دايماً
+
+=== قواعد ذهبية ===
+- الكود دايماً موجود على الشريحة - لا تقل "مش شايف" أبداً
+- اكتب كل اللي تشوفه حتى لو الصورة مش واضحة 100%
+- لو في شريحتين - الذاكرة هي اللي مكتوب عليها Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC
+- تجاهل Qualcomm/Snapdragon/Mediatek - دي CPU مش ذاكرة
+
+=== لما المستخدم بيصحح ===
+لو قالك "زجاجي" أو "عادي" أو مساحة - استمع وحفظ
+لو قالك "64" - يعني المساحة 64GB
+لو قالك "زجاجي 64" - يعني 64GB زجاجي
+لو قالك رقم بس - يعني المساحة
+
+=== طريقة الرد (JSON فقط بدون أي كلام قبله أو بعده) ===
+لو قرأت كود من صورة: {"newcode": "الكود_كامل", "company": "الشركة", "learned": false, "message": "شايف الكود: الكود"}
+لو المستخدم بيصحح: {"learned": true, "code": "الكود", "company": "الشركة", "type": "normal أو glass", "storage": "الرقم", "message": "✅ تم الحفظ"}
+للشات العادي: {"learned": false, "message": "ردك هنا"}
+
+مهم جداً: رد بـ JSON فقط - لا تكتب أي كلام قبل أو بعد الـ JSON`;
 
     var msgs = [{
       role: 'user',
