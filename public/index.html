@@ -1156,27 +1156,29 @@ async function analyzeImage(base64, previewSrc) {
 
   // ===== المرحلة الأولى: اقرأ الكود من الصورة بس =====
   var readPrompt = `You are an expert IC memory chip CODE READER only.
-IGNORE: Qualcomm, Snapdragon, Mediatek, CPU, ARM, GPU.
-Find ONLY the memory/storage chip (EMMC/UFS/NAND) code.
 
-NORMAL chips:
+STEP 1: Find the memory/storage IC only. Completely ignore CPU, GPU, Qualcomm, Snapdragon, Mediatek, ARM.
+
+STEP 2: Focus carefully on the memory IC and read every character engraved on it with extreme attention. Write down every letter and number you can see.
+
+STEP 3: Based on what you read, identify the code:
 - Samsung NORMAL (KM...): read LINE 3
 - SK Hynix NORMAL (H9...): read full code
 - SanDisk NORMAL (SDIN+TAIWAN): read LINE 2
 - Toshiba NORMAL (THG+TAIWAN): read LINE 3
 - Kingston NORMAL (TAIWAN): read LINE 4 left
-
-GLASS chips:
 - Samsung EMMC (KLM or KLU): read LINE 2-3
 - SK Hynix EMMC (H26/H28/HN8): read full
 - Toshiba GLASS (THG+JAPAN): read LINE 3
 - SanDisk GLASS (SDIN+CHINA): read LINE 2
 - Micron (JW/JZ): read full
-- YMEC (bottom-left YMEC6/7/8/9): read full
+- YMEC (bottom-left, 5th char is number): read full - 6=32GB, 7=64GB, 8=128GB, 9=256GB
 - UNIC (last line 05G/06G/07G): read last line
 
+IMPORTANT: Never say you cannot see. Always write what you see even if not 100% clear. Only if the image is completely unreadable, return empty code.
+
 Respond ONLY: {"code":"EXACT_CODE","company":"COMPANY"}
-If cannot read: {"code":"","company":""}`;
+If truly cannot read anything: {"code":"","company":""}`;
 
   try {
     var API_KEY = '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';
@@ -1617,21 +1619,31 @@ async function processChat(userMsg) {
   });
 
   if (mentionedCode) {
+    // دور في البيانات
     var dbResult = searchInDB(mentionedCode);
     if (dbResult) {
       displayResult(mentionedCode, dbResult, '');
       currentCode = mentionedCode;
+      lastParsed = {code: mentionedCode};
       var manualInput = document.getElementById('manualCode');
       if (manualInput) manualInput.value = mentionedCode;
       addChatMsg('المساعد', '✅ لقيته في البيانات: ' + mentionedCode + ' → ' + (dbResult.storage || dbResult.capacity) + ' GB ' + dbResult.type, 'bot');
       return;
     }
+    // دور في التعلم
+    var learnedArr = [];
+    try { var sl = localStorage.getItem('ic_learned'); if(sl) learnedArr = JSON.parse(sl); } catch(e){}
+    var learnedRes = learnedArr.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
+    if (learnedRes) {
+      addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedRes.storage || '?') + ' GB ' + (learnedRes.type === 'glass' ? 'زجاجي' : 'عادي'), 'bot');
+      return;
+    }
   }
 
   // ===== لو عنده كود من قبل - دور فيه في البيانات =====
-  if (lastParsed && lastParsed.code) {
+  if (lastParsed && lastParsed.code && !mentionedCode) {
     var existingResult = searchInDB(lastParsed.code);
-    if (existingResult && !mentionedCode) {
+    if (existingResult) {
       displayResult(lastParsed.code, existingResult, lastParsed.company || '');
       currentCode = lastParsed.code;
       addChatMsg('المساعد', '✅ ' + lastParsed.code + ' → ' + (existingResult.storage || existingResult.capacity) + ' GB ' + existingResult.type, 'bot');
@@ -1639,49 +1651,68 @@ async function processChat(userMsg) {
     }
   }
 
-  // ===== دور في التعلم بتاعه =====
-  if (mentionedCode) {
-    var learned = [];
-    try { var s = localStorage.getItem('ic_learned'); if(s) learned = JSON.parse(s); } catch(e){}
-    var learnedResult = learned.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
-    if (learnedResult) {
-      addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedResult.storage || '?') + ' GB ' + (learnedResult.type === 'glass' ? 'زجاجي' : 'عادي'), 'bot');
-      return;
-    }
+  // ===== لو المستخدم بيقول تفاصيل الشركة والمساحة - احفظها =====
+  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb)/i);
+  var isGlass = lower.includes('زجاجي') || lower.includes('glass');
+  var isNormal = lower.includes('عادي') || lower.includes('normal');
+  var codeToSave = mentionedCode || (lastParsed && lastParsed.code) || currentCode;
+
+  if (codeToSave && sizeMatch && (isGlass || isNormal)) {
+    // المستخدم بيعلمه - احفظ القاعدة
+    var savedL = localStorage.getItem('ic_learned');
+    var learnedList = savedL ? JSON.parse(savedL) : [];
+    learnedList.push({
+      b64: lastBase64,
+      code: codeToSave,
+      company: '',
+      type: isGlass ? 'glass' : 'normal',
+      storage: sizeMatch[1],
+      corrected: true
+    });
+    if (learnedList.length > 50) learnedList.shift();
+    localStorage.setItem('ic_learned', JSON.stringify(learnedList));
+    jbinSave(learnedList);
+    sessionStats.corrected++;
+    renderStats();
+    displayResult(codeToSave, {storage: sizeMatch[1], type: isGlass ? 'زجاجي' : 'عادي'}, '');
+    currentCode = codeToSave;
+    addChatMsg('المساعد', '✅ تم الحفظ! ' + codeToSave + ' → ' + sizeMatch[1] + ' GB ' + (isGlass ? 'زجاجي' : 'عادي') + ' 🧠', 'bot');
+    return;
   }
 
-  // ===== مش لاقيه - اسأل Claude =====
+  // ===== مش لاقيه - Claude يقرأ الكود من الصورة وJavaScript تدور =====
   addChatMsg('المساعد', '⏳ جاري التحليل...', 'bot');
 
   try {
     var API_KEY = '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';
 
-    var systemChat = `أنت مساعد تصنيف شرائح ذاكرة موبايل. المستخدم فني محترف يعلمك.
+    var systemChat = `أنت قارئ كود شرائح ذاكرة موبايل متخصص.
 
-الكود المكتشف سابقاً: ${lastParsed ? JSON.stringify(lastParsed) : 'لا يوجد'}.
-
-قواعد مهمة:
-- تجاهل تماماً: Qualcomm, Snapdragon, Mediatek, CPU, ARM, GPU
-- ركز فقط على شريحة الذاكرة (EMMC/UFS/NAND)
+الخطوة الأولى: ابحث عن IC الذاكرة فقط وتجاهل CPU وGPU تماماً.
+الخطوة الثانية: ركز على الكود المنقوش على IC الذاكرة بعناية شديدة واكتب كل حرف تراه.
+الخطوة الثالثة: حدد الكود الصحيح حسب الشركة:
 - Samsung NORMAL (KM): اقرأ السطر الثالث
-- Samsung EMMC (KLM/KLU): اقرأ السطر الثاني والثالث  
+- Samsung EMMC (KLM/KLU): اقرأ السطر الثاني والثالث
 - SK Hynix NORMAL (H9): اقرأ الكود كامل
 - SK Hynix EMMC (H26/H28/HN8): اقرأ الكود كامل
 - SanDisk TAIWAN (SDIN): اقرأ السطر الثاني - عادي
 - SanDisk CHINA (SDIN): اقرأ السطر الثاني - زجاجي
 - Toshiba TAIWAN (THG): اقرأ السطر الثالث - عادي
 - Toshiba JAPAN (THG): اقرأ السطر الثالث - زجاجي
-- Kingston TAIWAN: اقرأ السطر الرابع على الشمال - عادي
-- Micron (JW/JZ): اقرأ الكود كامل - زجاجي
-- YMEC: آخر سطر على الشمال - الرقم الخامس يحدد المساحة: 6=32GB, 7=64GB, 8=128GB, 9=256GB - زجاجي
-- UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB - زجاجي
+- Kingston TAIWAN: اقرأ السطر الرابع على الشمال
+- Micron (JW/JZ): اقرأ الكود كامل
+- YMEC: آخر سطر على الشمال - الحرف الخامس رقم: 6=32GB, 7=64GB, 8=128GB, 9=256GB
+- UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB
+
+مهم جداً: لا تقل مش شايف أبداً. اكتب كل اللي تشوفه حتى لو مش واضح 100%.
+لو الصورة وحشة جداً ومش قادر تقرأ أي حاجة - وقتها بس أرجع كود فاضي.
 
 لو المستخدم بيصحح: استخرج الكود والشركة والنوع.
-لو مش عارف: اسأل سؤال واحد محدد فقط عن الكود المكتوب.
 
 رد بالعربي دايماً.
-للتصحيح: {"learned": true, "code": "EXACT_CODE", "company": "COMPANY", "type": "normal/glass", "message": "رسالتك"}
-للشات: {"learned": false, "message": "رسالتك"}`;
+لو قرأت كود جديد: {"newcode": "EXACT_CODE", "company": "COMPANY", "learned": false, "message": "شايف الكود: EXACT_CODE"}
+لو المستخدم بيصحح: {"learned": true, "code": "EXACT_CODE", "company": "COMPANY", "type": "normal/glass", "message": "رسالتك"}
+للشات العادي: {"learned": false, "message": "رسالتك"}`;
 
     var msgs = [{
       role: 'user',
@@ -1711,6 +1742,26 @@ async function processChat(userMsg) {
 
     var box = document.getElementById('chatMessages');
     if (box && box.lastChild) box.removeChild(box.lastChild);
+
+    // لو Claude قرأ كود جديد - JavaScript تدور فيه في البيانات
+    if (parsed.newcode && parsed.newcode.length > 3) {
+      var chatFound = searchInDB(parsed.newcode);
+      if (chatFound) {
+        displayResult(parsed.newcode, chatFound, parsed.company || '');
+        currentCode = parsed.newcode;
+        lastParsed = {code: parsed.newcode, company: parsed.company};
+        var manualInput = document.getElementById('manualCode');
+        if (manualInput) manualInput.value = parsed.newcode;
+        addChatMsg('المساعد', '✅ ' + parsed.newcode + ' → ' + (chatFound.storage || chatFound.capacity) + ' GB ' + chatFound.type, 'bot');
+        return;
+      } else {
+        // دور في الاختصارات
+        lastParsed = {code: parsed.newcode, company: parsed.company};
+        currentCode = parsed.newcode;
+        addChatMsg('المساعد', '⚠️ الكود: ' + parsed.newcode + ' - مش في البيانات. قولي الشركة أو النوع عشان أسجله.', 'bot');
+        return;
+      }
+    }
 
     addChatMsg('المساعد', parsed.message || text, 'bot');
 
