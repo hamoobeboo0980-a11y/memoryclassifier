@@ -33,7 +33,7 @@ app.post('/api/analyze', async (req, res) => {
     try {
         console.log('Received analysis request from frontend...');
         
-        // استخراج البيانات من الـ body (بما في ذلك الـ system prompt)
+        // استخراج البيانات من الـ body
         const { image, code, system } = req.body;
 
         if (!image && !code) {
@@ -45,7 +45,20 @@ app.post('/api/analyze', async (req, res) => {
         let userContent = [];
         
         if (image) {
-            const cleanBase64 = image.replace(/^data:image\/\w+;base64,/, "");
+            // تنظيف الـ base64 والتأكد من أنه صالح
+            let cleanBase64 = image;
+            if (image.includes(',')) {
+                cleanBase64 = image.split(',')[1];
+            }
+            
+            // التحقق من صحة الـ base64 (محاولة بسيطة)
+            try {
+                Buffer.from(cleanBase64, 'base64');
+            } catch (e) {
+                console.error('ERROR: Invalid base64 data detected');
+                return res.status(400).json({ error: 'بيانات الصورة غير صالحة (Invalid base64)' });
+            }
+
             userContent.push({
                 type: "image",
                 source: {
@@ -65,11 +78,12 @@ app.post('/api/analyze', async (req, res) => {
             });
         }
 
-        // بناء الـ Payload لـ Anthropic مع تمرير الـ system prompt
+        // بناء الـ Payload لـ Anthropic
+        // ملاحظة: تم تغيير الموديل إلى claude-3-5-sonnet-20240620 لأنه الأكثر استقراراً وتوافراً
         const anthropicPayload = {
-            model: "claude-3-5-sonnet-20241022", // تم استخدام sonnet-3.5 لأنه الأحدث والأقوى حالياً
+            model: "claude-3-5-sonnet-20240620", 
             max_tokens: 1024,
-            system: system || "", // تمرير الـ system prompt من الـ frontend
+            system: system || "", 
             messages: [{
                 role: "user",
                 content: userContent
@@ -90,10 +104,29 @@ app.post('/api/analyze', async (req, res) => {
         
         if (!response.ok) {
             console.error('Anthropic API Error:', JSON.stringify(data));
+            // إذا كان الخطأ بسبب الموديل غير الموجود، نحاول استخدام موديل بديل
+            if (data.error && data.error.type === "not_found_error") {
+                 console.log('Retrying with alternative model...');
+                 anthropicPayload.model = "claude-3-opus-20240229";
+                 const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': API_KEY,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify(anthropicPayload)
+                });
+                const retryData = await retryResponse.json();
+                if (!retryResponse.ok) {
+                    return res.status(retryResponse.status).json(retryData);
+                }
+                const claudeText = retryData.content[0].text;
+                return res.status(200).json({ result: claudeText });
+            }
             return res.status(response.status).json(data);
         }
 
-        // استخراج النص من رد Claude والرد بالصيغة المطلوبة { "result": "..." }
         const claudeText = data.content[0].text;
         console.log('Analysis successful, returning result to frontend');
         res.status(200).json({ result: claudeText });
