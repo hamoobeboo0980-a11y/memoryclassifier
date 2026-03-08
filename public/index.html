@@ -1154,59 +1154,33 @@ async function analyzeImage(base64, previewSrc) {
     img.classList.add('show');
   }
 
-  var systemPrompt = `You are an expert IC memory chip reader for mobile phones trained by a professional technician.
-
-IGNORE completely: Qualcomm, Snapdragon, Mediatek, CPU, ARM, GPU.
-Find ONLY the memory/storage chip (EMMC/UFS/NAND).
-
-If you are NOT SURE between two codes, respond with:
-{"code":"","company":"COMPANY","type":"normal/glass","unsure":true,"options":["CODE1","CODE2"]}
+  // ===== المرحلة الأولى: اقرأ الكود من الصورة بس =====
+  var readPrompt = `You are an expert IC memory chip CODE READER only.
+IGNORE: Qualcomm, Snapdragon, Mediatek, CPU, ARM, GPU.
+Find ONLY the memory/storage chip (EMMC/UFS/NAND) code.
 
 NORMAL chips:
-- Samsung NORMAL (KM...): read LINE 3 => {"code":"KMGE6001BM","company":"Samsung","type":"normal"}
-- SK Hynix NORMAL (H9...): read full code => {"code":"H9TQ17ADFTMC","company":"SKHynix","type":"normal"}
-- SanDisk NORMAL (SDIN+TAIWAN): read LINE 2 => {"code":"SDINBDA4-64G","company":"SanDisk","type":"normal"}
-- Toshiba NORMAL (THG+TAIWAN): read LINE 3 => {"code":"THGBMG5C4LBAIR","company":"Toshiba","type":"normal"}
-- Kingston NORMAL (TAIWAN): read LINE 4 left => {"code":"16EMCP08-N","company":"Kingston","type":"normal"}
+- Samsung NORMAL (KM...): read LINE 3
+- SK Hynix NORMAL (H9...): read full code
+- SanDisk NORMAL (SDIN+TAIWAN): read LINE 2
+- Toshiba NORMAL (THG+TAIWAN): read LINE 3
+- Kingston NORMAL (TAIWAN): read LINE 4 left
 
 GLASS chips:
-- Samsung EMMC (KLM or KLU): read LINE 2-3 => {"code":"KLMAGZGEAC-B001","company":"Samsung","type":"glass"}
-- SK Hynix EMMC (H26/H28/HN8): read full => {"code":"HN8T06TZA","company":"SKHynix","type":"glass"}
-- Toshiba GLASS (THG+JAPAN): read LINE 3 => {"code":"THGBMFG7C2LBAIL","company":"Toshiba","type":"glass"}
-- SanDisk GLASS (SDIN+CHINA): read LINE 2 => {"code":"SDINBDA4-64G","company":"SanDisk","type":"glass"}
-- Micron (JW/JZ): read full => {"code":"JZ023","company":"Micron","type":"glass"}
-- YMEC (bottom-left YMEC6/7/8/9): read full => {"code":"YMEC6A2TB1A2C3","company":"YMEC","type":"glass"}
-- UNIC (last line 05G/06G/07G): read last line => {"code":"06G","company":"UNIC","type":"glass"}
+- Samsung EMMC (KLM or KLU): read LINE 2-3
+- SK Hynix EMMC (H26/H28/HN8): read full
+- Toshiba GLASS (THG+JAPAN): read LINE 3
+- SanDisk GLASS (SDIN+CHINA): read LINE 2
+- Micron (JW/JZ): read full
+- YMEC (bottom-left YMEC6/7/8/9): read full
+- UNIC (last line 05G/06G/07G): read last line
 
-Respond ONLY valid JSON. If cannot read: {"code":"","company":"","type":""}`;
-
-  var learnedExamples = [];
-  try {
-    var saved = localStorage.getItem('ic_learned');
-    if (saved) learnedExamples = JSON.parse(saved);
-  } catch(e) {}
-
-  var msgs = [];
-  var allExamples = BUILTIN_EXAMPLES.concat(learnedExamples.slice(-8));
-  for (var i = 0; i < allExamples.length; i++) {
-    var ex = allExamples[i];
-    var assistantResponse = JSON.stringify({code:ex.code, company:ex.company, type:ex.type});
-    if (ex.wrongCode) {
-      assistantResponse = JSON.stringify({code:ex.code, company:ex.company, type:ex.type, note:'corrected from ' + ex.wrongCode});
-    }
-    msgs.push({role:'user', content:[
-      {type:'image', source:{type:'base64', media_type:'image/jpeg', data:ex.b64}},
-      {type:'text', text:'اقرأ الكود من شريحة الذاكرة'}
-    ]});
-    msgs.push({role:'assistant', content:assistantResponse});
-  }
-  msgs.push({role:'user', content:[
-    {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
-    {type:'text', text:'اقرأ الكود من شريحة الذاكرة'}
-  ]});
+Respond ONLY: {"code":"EXACT_CODE","company":"COMPANY"}
+If cannot read: {"code":"","company":""}`;
 
   try {
     var API_KEY = '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';
+
     var res = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{
@@ -1215,13 +1189,21 @@ Respond ONLY valid JSON. If cannot read: {"code":"","company":"","type":""}`;
         'anthropic-version':'2023-06-01',
         'anthropic-dangerous-direct-browser-access':'true'
       },
-      body:JSON.stringify({model:'claude-opus-4-6', max_tokens:200, system:systemPrompt, messages:msgs})
+      body:JSON.stringify({
+        model:'claude-opus-4-6',
+        max_tokens:100,
+        system: readPrompt,
+        messages:[{role:'user', content:[
+          {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
+          {type:'text', text:'اقرأ الكود'}
+        ]}]
+      })
     });
 
     var data = await res.json();
     if (!res.ok || data.error) {
       showLoading(false);
-      showError('\u274C فشل التحليل - تأكد من الرصيد');
+      showError('❌ فشل التحليل - تأكد من الرصيد');
       isAnalyzing = false;
       return;
     }
@@ -1229,60 +1211,91 @@ Respond ONLY valid JSON. If cannot read: {"code":"","company":"","type":""}`;
     var text = data.content && data.content[0] ? data.content[0].text : '';
     var parsed;
     try { parsed = JSON.parse(text.replace(/```json|```/g,'').trim()); }
-    catch(e) { parsed = {code:text.trim().split('\n')[0].trim(), company:''}; }
+    catch(e) { parsed = {code:'', company:''}; }
 
     lastParsed = parsed;
-
-    // Handle "unsure" case - ask user via chat
-    if (parsed.unsure && parsed.options) {
-      showLoading(false);
-      isAnalyzing = false;
-      var opts = parsed.options.join(' أو ');
-      addChatMsg('المساعد', '\u2753 مش متأكد - هو ' + opts + '؟ قولي أيه الصح', 'bot');
-      showError('');
-      return;
-    }
-
     var detectedCode = parsed.code || '';
     currentCode = detectedCode;
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
 
-    // VALIDATION
-    if (detectedCode && !isValidCode(detectedCode)) {
-      showLoading(false);
-      addChatMsg('المساعد', '\u2753 شايف كود مش واضح: "' + detectedCode + '" - صوّر من زاوية أقرب وأوضح', 'bot');
-      showError('\u274C الكود مش واضح - صوّر تاني');
-      isAnalyzing = false;
-      return;
-    }
-
     if (!detectedCode) {
       showLoading(false);
-      addChatMsg('المساعد', '\u2753 مش شايف الكود - صوّر الشريحة أقرب أو قولي إيه اللي مكتوب', 'bot');
-      showError('\u274C مش شايف الكود - صوّر أقرب أو كلمني في الشات');
+      addChatMsg('المساعد', '❓ مش شايف الكود - صوّر أقرب أو اكتبه يدوي', 'bot');
+      showError('❌ مش شايف الكود');
       isAnalyzing = false;
       return;
     }
 
-    var found = searchInDB(detectedCode);
-    updateStats(parsed.company, !!found);
+    if (detectedCode && !isValidCode(detectedCode)) {
+      showLoading(false);
+      addChatMsg('المساعد', '❓ كود مش واضح: "' + detectedCode + '" - صوّر أقرب', 'bot');
+      showError('❌ الكود مش واضح');
+      isAnalyzing = false;
+      return;
+    }
 
+    // ===== المرحلة الثانية: دور في البيانات الأول =====
+    var found = searchInDB(detectedCode);
+
+    if (found) {
+      // لقاه في البيانات - خلاص
+      updateStats(parsed.company, true);
+      showLoading(false);
+      displayResult(detectedCode, found, parsed.company);
+      sessionCount++;
+      document.getElementById('sessionCount').textContent = sessionCount;
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - لو غلطت قولي الصح', 'bot');
+      isAnalyzing = false;
+      if (stream) requestAnimationFrame(analyzeFrame);
+      return;
+    }
+
+    // ===== المرحلة الثالثة: ملقاهوش - دور في التعلم =====
+    var learnedExamples = [];
+    try {
+      var saved = localStorage.getItem('ic_learned');
+      if (saved) learnedExamples = JSON.parse(saved);
+    } catch(e) {}
+
+    if (learnedExamples.length > 0) {
+      // دور في التعلم بتاعك
+      var learnedFound = null;
+      for (var li = 0; li < learnedExamples.length; li++) {
+        if (learnedExamples[li].code && 
+            learnedExamples[li].code.toUpperCase() === detectedCode.toUpperCase()) {
+          learnedFound = learnedExamples[li];
+          break;
+        }
+      }
+      if (learnedFound) {
+        updateStats(learnedFound.company, true);
+        showLoading(false);
+        displayResult(detectedCode, {
+          storage: learnedFound.storage || '?',
+          type: learnedFound.type === 'glass' ? 'زجاجي' : 'عادي',
+          capacity: learnedFound.capacity || ''
+        }, learnedFound.company);
+        sessionCount++;
+        document.getElementById('sessionCount').textContent = sessionCount;
+        addChatMsg('المساعد', '🧠 ' + detectedCode + ' - تعلمتها منك - صح؟', 'bot');
+        isAnalyzing = false;
+        if (stream) requestAnimationFrame(analyzeFrame);
+        return;
+      }
+    }
+
+    // ===== المرحلة الرابعة: مش في البيانات ومش في التعلم - اسأل =====
+    updateStats(parsed.company, false);
     showLoading(false);
-    displayResult(detectedCode, found, parsed.company);
+    displayResult(detectedCode, null, parsed.company);
     sessionCount++;
     document.getElementById('sessionCount').textContent = sessionCount;
-
-    // Chat confirmation
-    if (found) {
-      addChatMsg('المساعد', '\u2705 ' + detectedCode + ' - لو غلطت قولي الصح', 'bot');
-    } else {
-      addChatMsg('المساعد', '\u26A0\uFE0F كود جديد: ' + detectedCode + ' - صح ولا غلطت؟ قولي', 'bot');
-    }
+    addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - مش في بياناتي ولا في تعلمي - قولي إيه نوعه', 'bot');
 
   } catch(e) {
     showLoading(false);
-    showError('\u26A0\uFE0F خطأ في الاتصال\n' + e.message);
+    showError('⚠️ خطأ في الاتصال\n' + e.message);
   }
 
   isAnalyzing = false;
@@ -1432,6 +1445,54 @@ function nextPhoto() {
 }
 
 // API Key is on the server - no client key needed
+
+// ===== JSONBIN - حفظ التعلم على السحابة =====
+var JBIN_MASTER = '$2a$10$J2Cn/5MK2uANpg4KJ85Na.3zUuauEK0fl5tP.2dPNreOFJLrTGfJ2';
+var JBIN_ID = localStorage.getItem('ic_bin_id') || null;
+var cloudLearned = [];
+
+async function jbinLoad() {
+  try {
+    if (!JBIN_ID) {
+      // أول مرة - ابني bin جديد
+      var r = await fetch('https://api.jsonbin.io/v3/b', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-Master-Key':JBIN_MASTER,'X-Bin-Name':'ic_learned'},
+        body: JSON.stringify({learned:[]})
+      });
+      var d = await r.json();
+      JBIN_ID = d.metadata.id;
+      localStorage.setItem('ic_bin_id', JBIN_ID);
+      cloudLearned = [];
+    } else {
+      var r2 = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ID + '/latest', {
+        headers: {'X-Master-Key': JBIN_MASTER}
+      });
+      var d2 = await r2.json();
+      cloudLearned = d2.record.learned || [];
+      // دمج مع localStorage
+      var local = [];
+      try { var s = localStorage.getItem('ic_learned'); if(s) local = JSON.parse(s); } catch(e){}
+      // السحابة هي المصدر الأساسي
+      localStorage.setItem('ic_learned', JSON.stringify(cloudLearned));
+    }
+  } catch(e) { console.log('JSONBin load error:', e); }
+}
+
+async function jbinSave(learnedArr) {
+  try {
+    if (!JBIN_ID) await jbinLoad();
+    await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ID, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json','X-Master-Key':JBIN_MASTER},
+      body: JSON.stringify({learned: learnedArr})
+    });
+    cloudLearned = learnedArr;
+  } catch(e) { console.log('JSONBin save error:', e); }
+}
+
+// تحميل البيانات من السحابة عند فتح الموقع
+jbinLoad();
 
 // Start
 // Don't auto-start camera
@@ -1629,6 +1690,8 @@ For regular chat:
         });
         if (learned.length > 30) learned.shift();
         localStorage.setItem('ic_learned', JSON.stringify(learned));
+        // حفظ على السحابة - مش بيضيع
+        jbinSave(learned);
         sessionStats.corrected++;
         sessionStats.corrected > 0 && renderStats();
         
