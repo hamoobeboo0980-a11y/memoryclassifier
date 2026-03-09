@@ -741,6 +741,7 @@
              style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:9px 12px;color:var(--text);font-family:Cairo,sans-serif;font-size:13px;outline:none"
              onkeypress="if(event.key==='Enter') sendChat()">
       <button onclick="sendChat()" style="background:linear-gradient(135deg,var(--accent),#7b6cff);border:none;border-radius:10px;color:#000;font-family:Cairo,sans-serif;font-size:13px;font-weight:700;padding:9px 16px;cursor:pointer">إرسال</button>
+      <button onclick="testJbin()" title="تست السحابة" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:16px;padding:9px 12px;cursor:pointer">☁️</button>
     </div>
   </div>
 
@@ -814,6 +815,7 @@ let unknownCodes = JSON.parse(localStorage.getItem('unknownCodes') || '[]');
 // APP STATE
 // ═══════════════════════════════════════
 let sessionCount = 0;
+var currentDisplayStorage = "";
 let currentCode = '';
 let stream = null;
 let autoCapture = { sharpness: 0, stability: 0, light: 0, progress: 0, timer: null, prevFrame: null };
@@ -1497,6 +1499,7 @@ function displayResult(code, found, company) {
 
   if (found) {
     const storage = found.storage || (found.capacity ? found.capacity.split('+')[0] : '?');
+    currentDisplayStorage = storage; // احفظ المساحة الحالية
     const isGlass = found.type === 'زجاجي';
 
     document.getElementById('typeBadge').innerHTML = 
@@ -1568,7 +1571,7 @@ function nextPhoto() {
 
 // ===== JSONBIN - حفظ التعلم على السحابة =====
 var JBIN_MASTER = '$2a$10$J2Cn/5MK2uANpg4KJ85Na.3zUuauEK0fl5tP.2dPNreOFJLrTGfJ2';
-var JBIN_ID = localStorage.getItem('ic_bin_id') || null;
+var JBIN_ID = '69ae8defd0ea881f40ff7982'; // ID ثابت - مش بيتغير
 var cloudLearned = [];
 
 async function jbinLoad() {
@@ -1602,13 +1605,36 @@ async function jbinLoad() {
 async function jbinSave(learnedArr) {
   try {
     if (!JBIN_ID) await jbinLoad();
-    await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ID, {
+    var res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ID, {
       method: 'PUT',
-      headers: {'Content-Type':'application/json','X-Master-Key':JBIN_MASTER},
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Master-Key': JBIN_MASTER,
+        'X-Access-Key': JBIN_MASTER
+      },
       body: JSON.stringify({learned: learnedArr})
     });
+    var result = await res.json();
+    console.log('JSONBin save OK:', result);
     cloudLearned = learnedArr;
   } catch(e) { console.log('JSONBin save error:', e); }
+}
+
+// تست سريع - اضغط F12 وشوف Console
+async function testJbin() {
+  try {
+    var res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ID + '/latest', {
+      headers: {
+        'X-Master-Key': JBIN_MASTER,
+        'X-Access-Key': JBIN_MASTER
+      }
+    });
+    var d = await res.json();
+    console.log('JSONBin READ OK:', d);
+    alert('السحابة شغالة ✅ - عدد السجلات: ' + (d.record && d.record.learned ? d.record.learned.length : 0));
+  } catch(e) {
+    alert('السحابة مش شغالة - ' + e.message);
+  }
 }
 
 // تحميل البيانات من السحابة عند فتح الموقع
@@ -1766,7 +1792,14 @@ async function processChat(userMsg) {
     // لو المستخدم بيصحح النوع - اسمعه وحفظ
     if (isGlassCorrection || isNormalCorrection) {
       var existingResult2 = searchInDB(lastParsed.code);
-      var storage2 = existingResult2 ? (existingResult2.storage || existingResult2.capacity || '?') : '?';
+      // دور على المساحة من كل المصادر
+      var sizeMatch2 = userMsg.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
+      var storage2 = '';
+      if (sizeMatch2) storage2 = sizeMatch2[1]; // من رسالة المستخدم
+      else if (existingResult2) storage2 = existingResult2.storage || existingResult2.capacity || '';
+      else if (lastParsed.storage) storage2 = lastParsed.storage;
+      else if (currentDisplayStorage) storage2 = currentDisplayStorage;
+      
       var newType = isGlassCorrection ? 'زجاجي' : 'عادي';
       // احفظ التصحيح
       var savedL2 = localStorage.getItem('ic_learned');
@@ -1775,9 +1808,9 @@ async function processChat(userMsg) {
       if (learnedList2.length > 50) learnedList2.shift();
       localStorage.setItem('ic_learned', JSON.stringify(learnedList2));
       jbinSave(learnedList2);
-      displayResult(lastParsed.code, {storage: storage2, type: newType}, lastParsed.company || '');
+      displayResult(lastParsed.code, {storage: storage2 || '?', type: newType}, lastParsed.company || '');
       currentCode = lastParsed.code;
-      addChatMsg('المساعد', '✅ تم التصحيح! ' + lastParsed.code + ' → ' + storage2 + ' GB ' + newType + ' 🧠', 'bot');
+      addChatMsg('المساعد', '✅ تم التصحيح! ' + lastParsed.code + ' → ' + (storage2 || '?') + ' GB ' + newType + ' 🧠', 'bot');
       return;
     }
     var existingResult = searchInDB(lastParsed.code);
