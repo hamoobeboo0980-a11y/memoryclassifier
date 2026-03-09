@@ -702,10 +702,6 @@
 // Gemini API Key
 const GEMINI_API_KEY = "AIzaSyDeWn6mfiB-VP8hxBb878qrJ0K0_OGcGc8";
 
-// DB placeholders
-const NORMAL_DB = {};
-const EMMC_DB = {};
-
 // Camera logic
 let stream = null;
 const video = document.getElementById('video');
@@ -752,11 +748,12 @@ async function analyzeImage(base64) {
     document.getElementById('resultCard').classList.remove('show');
     
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // Updated URL for v1 API (more stable)
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
             contents: [{
                 parts: [
-                    { text: "Identify this IC chip. Return JSON: {\"storage\":\"\",\"ram\":\"\",\"bga\":\"\",\"type\":\"\",\"code\":\"\"}" },
+                    { text: "Identify this IC chip. Return ONLY a JSON object: {\"storage\":\"\",\"ram\":\"\",\"bga\":\"\",\"type\":\"\",\"code\":\"\"}" },
                     { inline_data: { mime_type: "image/jpeg", data: base64 } }
                 ]
             }]
@@ -764,8 +761,15 @@ async function analyzeImage(base64) {
         
         const res = await fetch(url, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+        
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error?.message || "فشل الطلب");
+        }
+        
         const data = await res.json();
         const text = data.candidates[0].content.parts[0].text;
         const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
