@@ -984,8 +984,8 @@ function uploadImage(e) {
     const img = new Image();
     img.onload = function() {
       const canvas = document.createElement('canvas');
-      // حجم مناسب - مش كبير جداً ولا صغير
-      const maxSize = 1200;
+      // بدون ضغط - الصورة بدقتها الأصلية (حتى 3072px)
+      const maxSize = 3072;
       let w = img.width, h = img.height;
       if (w > maxSize || h > maxSize) {
         if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
@@ -995,7 +995,21 @@ function uploadImage(e) {
       canvas.height = h;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      const jpeg = canvas.toDataURL('image/jpeg', 0.95);
+
+      // Sharpness + Contrast لإبراز حواف الحروف المنقوشة
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const data = imageData.data;
+      // Contrast +20%
+      const contrast = 1.2;
+      const intercept = 128 * (1 - contrast);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i]   = Math.min(255, Math.max(0, data[i]   * contrast + intercept));
+        data[i+1] = Math.min(255, Math.max(0, data[i+1] * contrast + intercept));
+        data[i+2] = Math.min(255, Math.max(0, data[i+2] * contrast + intercept));
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      const jpeg = canvas.toDataURL('image/jpeg', 1.0);
       analyzeImage(jpeg.split(',')[1], jpeg);
     };
     img.src = full;
@@ -1182,94 +1196,86 @@ async function analyzeImage(base64, previewSrc) {
     img.classList.add('show');
   }
 
-  // ===== المرحلة الأولى: اقرأ الكود من الصورة بس =====
-  var readPrompt = `You are a world-class expert in mobile phone memory IC chips with 20 years of experience.
+  // ===== المرحلة الأولى: اقرأ الكود من الصورة بـ Gemini =====
+  var GEMINI_KEY = 'AIzaSyBJ6lVPhbyb1VPss1UY4Abo2TSZ4AWbfoA';
+  var geminiPrompt = `You are a high-precision OCR engine specialized in micro-electronics IC chips on mobile phone circuit boards.
 
-=== STEP 1: FIND THE MEMORY CHIP ===
-Ignore: Qualcomm, Snapdragon, Mediatek, ARM, CPU, GPU
-Find: Samsung, SK Hynix, Toshiba, SanDisk, Kingston, Micron (JW/JZ), YMEC, UNIC
+Your ONLY job: Extract the memory chip code.
 
-=== STEP 2: IDENTIFY THE COMPANY FIRST ===
-Look at the chip carefully. What company name or logo do you see?
-This is critical - the company tells you which line to read.
+IGNORE: Qualcomm, Snapdragon, Mediatek, CPU, GPU chips completely.
+FIND: Samsung (KM/KLM/KLU), SK Hynix (H9/H26/H28/HN8), Toshiba (THG), SanDisk (SDIN), Kingston, Micron (JW/JZ), YMEC, UNIC
 
-=== STEP 3: READ THE CORRECT LINE ===
-- Samsung KM (عادي): LINE 3
-- Samsung KLM/KLU (زجاجي): LINE 2+3
-- SK Hynix H9 (عادي): full code
-- SK Hynix H26/H28/HN8 (زجاجي): full code
-- SanDisk SDIN: LINE 2
-- Toshiba THG: LINE 3
-- Kingston: LINE 4 left
-- Micron JW/JZ: full code
-- YMEC: bottom-left last line
-- UNIC: last line
+READ RULES by company:
+- Samsung KM: read LINE 3
+- Samsung KLM/KLU: read LINES 2+3
+- SK Hynix H9: read full code
+- SK Hynix H26/H28/HN8: read full code
+- SanDisk SDIN: read LINE 2
+- Toshiba THG: read LINE 3
+- Kingston: read LINE 4 left side
+- Micron JW/JZ: read full code
+- YMEC: read bottom-left last line
+- UNIC: read last line
 
-=== STEP 4: IF IMAGE IS CLEAR - READ AND RETURN ===
-Read every character carefully. Return the exact code.
+AMBIGUITY RULES:
+- G vs 6: analyze edge curvature
+- B vs 8: check if it has two bumps (B) or loops (8)
+- 0 vs O: check if it is round (O) or slightly oval (0)
+- For any unclear character, mark with ? but still return the code
 
-=== STEP 5: IF IMAGE IS NOT CLEAR - THINK DEEPLY ===
-Do NOT invent a code. Instead think:
-- What company do I see? (even partially)
-- What letters/numbers can I make out? (even if incomplete)
-- Based on what I can see, what is my best honest reading?
-Return only what you can actually see - never complete or invent characters you cannot see.
+Return ONLY this JSON, nothing else:
+{"code":"THE_CODE","company":"COMPANY_NAME"}
 
-=== STORAGE RULES (apply after reading code) ===
-Samsung KM - letter before 000/100/200/600/700/800/900:
-  N=8, E=16, X=32, D=32, C=64, H=64, P=64, G=128, V=128, F=256, S=256
-Samsung KMK7X = 8GB, KMK8X = 16GB
-Samsung KLM/KLU: AG=16, BG=32, CG=64, DG=128, EG=256, FG=512
-SK Hynix H9 positions 5-6: 17/18/19=16, 26/27=32, 52/53=64
-Toshiba THG: G7=16, G8=32, G9=64, T0=128, T1=256, T2=512
-SanDisk: size written in code (16G/32G/64G/128G)
-YMEC 5th char: 6=32, 7=64, 8=128, 9=256 (always glass)
-UNIC: 05G=32, 06G=64, 07G=128 (always glass)
-
-=== RESPOND ONLY WITH JSON ===
-If you can read the code clearly:
-{"code":"EXACT_CODE","company":"COMPANY","storage":"GB_NUMBER","type":"normal or glass"}
-
-If image is unclear but you can partially read:
-{"code":"BEST_PARTIAL_CODE","company":"COMPANY","storage":"","type":"normal or glass","unclear":true}
-
-If completely unreadable (very rare):
-{"code":"","company":"","storage":"","type":""}`;
+If truly unreadable: {"code":"","company":""}`;
 
   try {
-    var API_KEY = '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';
-
-    var res = await fetch('https://api.anthropic.com/v1/messages', {
+    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=' + GEMINI_KEY, {
       method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key':API_KEY,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
-      },
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        model:'claude-opus-4-6',
-        max_tokens:1000,
-        system: readPrompt,
-        messages:[{role:'user', content:[
-          {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
-          {type:'text', text:'اقرأ الكود'}
+        generationConfig: {
+          temperature: 0.1,
+          topP: 0.95,
+          responseMimeType: 'application/json'
+        },
+        system_instruction: {parts:[{text: geminiPrompt}]},
+        contents:[{parts:[
+          {inline_data:{mime_type:'image/jpeg', data:base64}},
+          {text:'Read the memory IC chip code from this image.'}
         ]}]
       })
     });
 
-    var data = await res.json();
-    if (!res.ok || data.error) {
+    if (!geminiRes.ok) {
       showLoading(false);
       showError('❌ فشل التحليل - تأكد من الرصيد');
       isAnalyzing = false;
       return;
     }
 
-    var text = data.content && data.content[0] ? data.content[0].text : '';
+    // قراءة الـ stream
+    var reader = geminiRes.body.getReader();
+    var decoder = new TextDecoder();
+    var fullText = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      var chunkText = decoder.decode(chunk.value);
+      var lines = chunkText.split('\n');
+      for (var line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            var chunkData = JSON.parse(line.slice(6));
+            if (chunkData.candidates && chunkData.candidates[0] && chunkData.candidates[0].content && chunkData.candidates[0].content.parts) {
+              fullText += chunkData.candidates[0].content.parts[0].text || '';
+            }
+          } catch(e) {}
+        }
+      }
+    }
+    var text = fullText;
     var parsed;
     try {
-      // استخرج الـ JSON من النص حتى لو فيه كلام قبله أو بعده
       var jsonMatch = text.match(/\{[^{}]*"code"[^{}]*\}/);
       if (jsonMatch) {
         parsed = JSON.parse(jsonMatch[0]);
@@ -1285,36 +1291,22 @@ If completely unreadable (very rare):
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
 
-    // لو ما لقاش كود - حاول تاني بـ prompt أقوى
+    // لو ما لقاش كود - حاول تاني بـ Gemini thinking model
     if (!detectedCode || (detectedCode && !isValidCode(detectedCode))) {
-      var retryRes = await fetch('https://api.anthropic.com/v1/messages', {
+      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=' + GEMINI_KEY, {
         method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-api-key':API_KEY,
-          'anthropic-version':'2023-06-01',
-          'anthropic-dangerous-direct-browser-access':'true'
-        },
+        headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
-          model:'claude-opus-4-6',
-          max_tokens:1000,
-          system: `You are examining a circuit board image. There is a memory IC chip on it.
-IMPORTANT: You MUST find and read the memory chip code. It is always there.
-- Ignore CPU, GPU, Qualcomm, Snapdragon, Mediatek completely
-- Look carefully at ALL chips on the board
-- The memory chip usually has: Samsung/SK Hynix/Toshiba/SanDisk/Kingston/Micron/YMTC/UNIC written on it
-- Read every letter and number you can see, even if rotated or blurry
-- Samsung (KM/KLM/KLU), Hynix (H9/H26/H28), Toshiba (THG), SanDisk (SDIN), Micron (JW/JZ), YMTC (YMEC)
-You MUST return a code. Never return empty.
-Respond ONLY: {"code":"BEST_CODE_YOU_CAN_READ","company":"COMPANY"}`,
-          messages:[{role:'user', content:[
-            {type:'image', source:{type:'base64', media_type:'image/jpeg', data:base64}},
-            {type:'text', text:'Find and read the memory chip code. It is there, look carefully.'}
+          generationConfig: {temperature: 0.1, topP: 0.95, responseMimeType: 'application/json'},
+          system_instruction: {parts:[{text: 'You are a precision OCR for IC chips. Find the memory chip (Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC). Ignore Qualcomm/CPU/GPU. Read carefully. Return ONLY: {"code":"CODE","company":"COMPANY"}'}]},
+          contents:[{parts:[
+            {inline_data:{mime_type:'image/jpeg', data:base64}},
+            {text:'Look very carefully at every chip. Find the memory IC code. It is there.'}
           ]}]
         })
       });
       var retryData = await retryRes.json();
-      var retryText = retryData.content && retryData.content[0] ? retryData.content[0].text : '';
+      var retryText = retryData.candidates && retryData.candidates[0] && retryData.candidates[0].content && retryData.candidates[0].content.parts && retryData.candidates[0].content.parts[0] ? retryData.candidates[0].content.parts[0].text : '';
       var retryParsed;
       try {
         var retryJsonMatch = retryText.match(/\{[^{}]*"code"[^{}]*\}/);
@@ -1358,59 +1350,38 @@ Respond ONLY: {"code":"BEST_CODE_YOU_CAN_READ","company":"COMPANY"}`,
       return;
     }
 
-    // ===== المرحلة الثالثة: ملقاهوش - دور في التعلم =====
-    var learnedExamples = [];
-    try {
-      var saved = localStorage.getItem('ic_learned');
-      if (saved) learnedExamples = JSON.parse(saved);
-    } catch(e) {}
-
-    if (learnedExamples.length > 0) {
-      // دور في التعلم بتاعك
-      var learnedFound = null;
-      for (var li = 0; li < learnedExamples.length; li++) {
-        if (learnedExamples[li].code && 
-            learnedExamples[li].code.toUpperCase() === detectedCode.toUpperCase()) {
-          learnedFound = learnedExamples[li];
-          break;
-        }
-      }
-      if (learnedFound) {
-        updateStats(learnedFound.company, true);
-        showLoading(false);
-        displayResult(detectedCode, {
-          storage: learnedFound.storage || '?',
-          type: learnedFound.type === 'glass' ? 'زجاجي' : 'عادي',
-          capacity: learnedFound.capacity || ''
-        }, learnedFound.company);
-        sessionCount++;
-        document.getElementById('sessionCount').textContent = sessionCount;
-        addChatMsg('المساعد', '🧠 ' + detectedCode + ' - تعلمتها منك - صح؟', 'bot');
-        isAnalyzing = false;
-        if (stream) requestAnimationFrame(analyzeFrame);
-        return;
+    // ===== المرحلة الثالثة: ملقاهوش - دور في التعلم من السحابة =====
+    var learnedFound = null;
+    for (var li = 0; li < cloudLearned.length; li++) {
+      if (cloudLearned[li].code && 
+          cloudLearned[li].code.toUpperCase() === detectedCode.toUpperCase()) {
+        learnedFound = cloudLearned[li];
+        break;
       }
     }
-
-    // ===== المرحلة الرابعة: مش في البيانات - استخدم اللي Claude حلله مباشرة =====
-    if (parsed.storage && parsed.storage !== '') {
-      // Claude عرف المساحة من الكود - عرضها مباشرة
-      var claudeType = (parsed.type === 'glass') ? 'زجاجي' : 'عادي';
-      updateStats(parsed.company, true);
+    if (learnedFound) {
+      updateStats(learnedFound.company, true);
       showLoading(false);
-      displayResult(detectedCode, {storage: parsed.storage, type: claudeType}, parsed.company);
+      displayResult(detectedCode, {
+        storage: learnedFound.storage || '?',
+        type: learnedFound.type === 'glass' ? 'زجاجي' : 'عادي',
+        capacity: learnedFound.capacity || ''
+      }, learnedFound.company);
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
-      addChatMsg('المساعد', '✅ ' + detectedCode + ' → ' + parsed.storage + ' GB ' + claudeType + ' - لو غلطت قولي الصح', 'bot');
-    } else {
-      // Claude مش عارف المساحة - اسأل
-      updateStats(parsed.company, false);
-      showLoading(false);
-      displayResult(detectedCode, null, parsed.company);
-      sessionCount++;
-      document.getElementById('sessionCount').textContent = sessionCount;
-      addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
+      addChatMsg('المساعد', '🧠 ' + detectedCode + ' - تعلمتها منك - صح؟', 'bot');
+      isAnalyzing = false;
+      if (stream) requestAnimationFrame(analyzeFrame);
+      return;
     }
+
+    // ===== المرحلة الرابعة: مش في البيانات - اسأل =====
+    updateStats(parsed.company, false);
+    showLoading(false);
+    displayResult(detectedCode, null, parsed.company);
+    sessionCount++;
+    document.getElementById('sessionCount').textContent = sessionCount;
+    addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
 
   } catch(e) {
     showLoading(false);
@@ -1682,15 +1653,11 @@ async function toggleFlash() {
 
 
 // ===== VALID CODE PREFIXES FOR VALIDATION =====
-var VALID_PREFIXES = ['KM','H9','THG','SDIN','KLM','KLU','H26','H28','HN8','JW','JZ','YMEC','UNIC','EMMC','16EM','32EM','64EM','128E','256E','KING','KING','EM0','EM1','EM2','EM3','EM4','EM5','EM6','EM7','EM8','EM9'];
+// أي كود طوله 4 حروف أو أكتر = مقبول بدون قيود
 
 function isValidCode(code) {
   if (!code || code.length < 4) return false;
-  var upper = code.toUpperCase();
-  for (var i = 0; i < VALID_PREFIXES.length; i++) {
-    if (upper.startsWith(VALID_PREFIXES[i])) return true;
-  }
-  return false;
+  return true;
 }
 
 // ===== SESSION STATS =====
@@ -1771,10 +1738,8 @@ async function processChat(userMsg) {
       addChatMsg('المساعد', '✅ لقيته في البيانات: ' + mentionedCode + ' → ' + (dbResult.storage || dbResult.capacity) + ' GB ' + dbResult.type, 'bot');
       return;
     }
-    // دور في التعلم
-    var learnedArr = [];
-    try { var sl = localStorage.getItem('ic_learned'); if(sl) learnedArr = JSON.parse(sl); } catch(e){}
-    var learnedRes = learnedArr.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
+    // دور في التعلم من السحابة
+    var learnedRes = cloudLearned.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
     if (learnedRes) {
       addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedRes.storage || '?') + ' GB ' + (learnedRes.type === 'glass' ? 'زجاجي' : 'عادي'), 'bot');
       return;
@@ -1799,12 +1764,15 @@ async function processChat(userMsg) {
       
       var newType = isGlassCorrection ? 'زجاجي' : 'عادي';
       // احفظ التصحيح
-      var savedL2 = localStorage.getItem('ic_learned');
-      var learnedList2 = savedL2 ? JSON.parse(savedL2) : [];
-      learnedList2.push({ code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true });
-      if (learnedList2.length > 50) learnedList2.shift();
-      localStorage.setItem('ic_learned', JSON.stringify(learnedList2));
-      jbinSave(learnedList2);
+      var existIdx3 = cloudLearned.findIndex(function(x){ return x.code && x.code.toUpperCase() === lastParsed.code.toUpperCase(); });
+      var newEntry3 = { code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true };
+      if (existIdx3 >= 0) {
+        cloudLearned[existIdx3] = newEntry3;
+      } else {
+        cloudLearned.push(newEntry3);
+      }
+      localStorage.setItem('ic_learned', JSON.stringify(cloudLearned));
+      jbinSave(cloudLearned);
       displayResult(lastParsed.code, {storage: storage2 || '?', type: newType}, lastParsed.company || '');
       currentCode = lastParsed.code;
       addChatMsg('المساعد', '✅ تم التصحيح! ' + lastParsed.code + ' → ' + (storage2 || '?') + ' GB ' + newType + ' 🧠', 'bot');
@@ -1820,31 +1788,31 @@ async function processChat(userMsg) {
   }
 
   // ===== لو المستخدم بيقول تفاصيل الشركة والمساحة - احفظها =====
-  // دور على رقم معاه "جيجا/GB" الأول - لو مفيش خد آخر رقم في الرسالة
-  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb)/i) || userMsg.match(/(\d+)\s*G(?![A-Z0-9])/i);
-  if (!sizeMatch) {
-    // خد آخر رقم منفرد في الرسالة (مش جزء من كود)
-    var allNums = [...userMsg.matchAll(/(?<![A-Z0-9-])(\d+)(?![A-Z0-9-])/gi)];
-    if (allNums.length > 0) sizeMatch = allNums[allNums.length - 1];
+  // دور على الأرقام الصح: 8, 16, 32, 64, 128, 256, 512 بس
+  var validSizes = ['512','256','128','64','32','16','8'];
+  var sizeMatch = null;
+  for (var si = 0; si < validSizes.length; si++) {
+    var re = new RegExp('(?<![A-Z0-9])' + validSizes[si] + '(?![A-Z0-9])', 'i');
+    if (re.test(userMsg)) {
+      sizeMatch = [null, validSizes[si]];
+      break;
+    }
   }
   var isGlass = lower.includes('زجاجي') || lower.includes('glass');
   var isNormal = lower.includes('عادي') || lower.includes('normal');
   var codeToSave = mentionedCode || (lastParsed && lastParsed.code) || currentCode;
 
   if (codeToSave && sizeMatch && (isGlass || isNormal)) {
-    // المستخدم بيعلمه - احفظ القاعدة
-    var savedL = localStorage.getItem('ic_learned');
-    var learnedList = savedL ? JSON.parse(savedL) : [];
-    learnedList.push({
-      code: codeToSave,
-      company: '',
-      type: isGlass ? 'glass' : 'normal',
-      storage: sizeMatch[1],
-      corrected: true
-    });
-    if (learnedList.length > 50) learnedList.shift();
-    localStorage.setItem('ic_learned', JSON.stringify(learnedList));
-    jbinSave(learnedList);
+    // المستخدم بيعلمه - احفظ على cloudLearned مباشرة بدون ما تمسح حاجة
+    var existIdx = cloudLearned.findIndex(function(x){ return x.code && x.code.toUpperCase() === codeToSave.toUpperCase(); });
+    var newEntry = {code: codeToSave, company: '', type: isGlass ? 'glass' : 'normal', storage: sizeMatch[1], corrected: true};
+    if (existIdx >= 0) {
+      cloudLearned[existIdx] = newEntry; // حدّث لو موجود
+    } else {
+      cloudLearned.push(newEntry); // أضف جديد
+    }
+    localStorage.setItem('ic_learned', JSON.stringify(cloudLearned));
+    jbinSave(cloudLearned);
     sessionStats.corrected++;
     renderStats();
     displayResult(codeToSave, {storage: sizeMatch[1], type: isGlass ? 'زجاجي' : 'عادي'}, '');
@@ -1853,155 +1821,8 @@ async function processChat(userMsg) {
     return;
   }
 
-  // ===== مش لاقيه - Claude يقرأ الكود من الصورة وJavaScript تدور =====
-  addChatMsg('المساعد', '⏳ جاري التحليل...', 'bot');
-
-  try {
-    var API_KEY = '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';
-
-    var systemChat = `أنت خبير متخصص في شرائح ذاكرة الموبايل (eMMC/UFS/NAND). اسمك "البحراوي".
-عندك خبرة 20 سنة في قراءة وتصنيف شرائح الذاكرة في مراكز إصلاح الموبايل.
-
-=== مهمتك الأساسية ===
-لما تشوف صورة بورد موبايل:
-1. ابحث عن IC الذاكرة - تجاهل CPU/GPU/Qualcomm/Snapdragon/Mediatek تماماً
-2. اقرأ الكود على IC الذاكرة بعناية - كل حرف وكل رقم
-3. حدد المساحة والنوع (عادي/زجاجي)
-
-=== قواعد القراءة حسب الشركة ===
-Samsung عادي (KM): السطر الثالث هو الكود - الحرف قبل 000/100/200/600/700/800/900 يحدد المساحة:
-  N=8GB, E=16GB, X=32GB, D=32GB, C=64GB, H=64GB, P=64GB, G=128GB, V=128GB, F=256GB, S=256GB
-
-Samsung زجاجي (KLM/KLU): السطر الثاني والثالث - AG=16GB, BG=32GB, CG=64GB, DG=128GB, EG=256GB, FG=512GB
-
-SK Hynix عادي (H9): اقرأ الكود كامل - الرقمين في الموضع 5-6:
-  17/18/19=16GB, 26/27=32GB, 52/53=64GB
-
-SK Hynix زجاجي (H26/H28/HN8): اقرأ الكود كامل
-
-SanDisk عادي (SDIN+TAIWAN): السطر الثاني - المساحة مكتوبة صريحة (16G/32G/64G/128G)
-SanDisk زجاجي (SDIN+CHINA): السطر الثاني - نفس الطريقة
-
-Toshiba عادي (THG+TAIWAN): السطر الثالث - G7=16GB, G8=32GB, G9=64GB, T0=128GB, T1=256GB, T2=512GB
-Toshiba زجاجي (THG+JAPAN): نفس الطريقة
-
-Kingston (TAIWAN): السطر الرابع على اليسار
-
-Micron (JW/JZ): اقرأ الكود كامل
-
-YMEC: آخر سطر على اليسار - الحرف الخامس: 6=32GB, 7=64GB, 8=128GB, 9=256GB - نوعه زجاجي دايماً
-
-UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB - نوعه زجاجي دايماً
-
-=== قواعد ذهبية ===
-- الكود دايماً موجود على الشريحة - لا تقل "مش شايف" أبداً
-- اكتب كل اللي تشوفه حتى لو الصورة مش واضحة 100%
-- لو في شريحتين - الذاكرة هي اللي مكتوب عليها Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC
-- تجاهل Qualcomm/Snapdragon/Mediatek - دي CPU مش ذاكرة
-
-=== لما المستخدم بيصحح ===
-لو قالك "زجاجي" أو "عادي" أو مساحة - استمع وحفظ
-لو قالك "64" - يعني المساحة 64GB
-لو قالك "زجاجي 64" - يعني 64GB زجاجي
-لو قالك رقم بس - يعني المساحة
-
-=== طريقة الرد (JSON فقط بدون أي كلام قبله أو بعده) ===
-لو قرأت كود من صورة: {"newcode": "الكود_كامل", "company": "الشركة", "learned": false, "message": "شايف الكود: الكود"}
-لو المستخدم بيصحح: {"learned": true, "code": "الكود", "company": "الشركة", "type": "normal أو glass", "storage": "الرقم", "message": "✅ تم الحفظ"}
-للشات العادي: {"learned": false, "message": "ردك هنا"}
-
-مهم جداً: رد بـ JSON فقط - لا تكتب أي كلام قبل أو بعد الـ JSON`;
-
-    var msgs = [{
-      role: 'user',
-      content: [
-        {type:'image', source:{type:'base64', media_type:'image/jpeg', data:lastBase64}},
-        {type:'text', text: userMsg}
-      ]
-    }];
-
-    var res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key':API_KEY,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true'
-      },
-      body:JSON.stringify({model:'claude-opus-4-6', max_tokens:300, system:systemChat, messages:msgs})
-    });
-
-    var data = await res.json();
-    var text = data.content && data.content[0] ? data.content[0].text : '';
-    
-    var parsed;
-    try {
-      var jsonMatch = text.match(/\{[\s\S]*?\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
-      }
-    }
-    catch(e) { parsed = {learned:false, message:text}; }
-
-    var box = document.getElementById('chatMessages');
-    if (box && box.lastChild) box.removeChild(box.lastChild);
-
-    // لو Claude قرأ كود جديد - JavaScript تدور فيه في البيانات
-    if (parsed.newcode && parsed.newcode.length > 3) {
-      var chatFound = searchInDB(parsed.newcode);
-      if (chatFound) {
-        displayResult(parsed.newcode, chatFound, parsed.company || '');
-        currentCode = parsed.newcode;
-        lastParsed = {code: parsed.newcode, company: parsed.company};
-        var manualInput = document.getElementById('manualCode');
-        if (manualInput) manualInput.value = parsed.newcode;
-        addChatMsg('المساعد', '✅ ' + parsed.newcode + ' → ' + (chatFound.storage || chatFound.capacity) + ' GB ' + chatFound.type, 'bot');
-        return;
-      } else {
-        // دور في الاختصارات
-        lastParsed = {code: parsed.newcode, company: parsed.company};
-        currentCode = parsed.newcode;
-        addChatMsg('المساعد', '⚠️ الكود: ' + parsed.newcode + ' - مش في البيانات. قولي الشركة أو النوع عشان أسجله.', 'bot');
-        return;
-      }
-    }
-
-    addChatMsg('المساعد', parsed.message || text, 'bot');
-
-    // لو بيصحح - احفظ في التعلم
-    if (parsed.learned && parsed.code && lastBase64) {
-      try {
-        var savedL = localStorage.getItem('ic_learned');
-        var learned = savedL ? JSON.parse(savedL) : [];
-        var wrongCode = lastParsed ? lastParsed.code : '';
-        learned.push({
-          code: parsed.code,
-          company: parsed.company,
-          type: parsed.type,
-          storage: parsed.storage || '',
-          corrected: true
-        });
-        if (learned.length > 30) learned.shift();
-        localStorage.setItem('ic_learned', JSON.stringify(learned));
-        jbinSave(learned);
-        sessionStats.corrected++;
-        sessionStats.corrected > 0 && renderStats();
-        var found = searchInDB(parsed.code);
-        displayResult(parsed.code, found, parsed.company);
-        var manualInput = document.getElementById('manualCode');
-        if (manualInput) manualInput.value = parsed.code;
-        currentCode = parsed.code;
-        addChatMsg('المساعد', '✅ تم الحفظ! هعرفها المرة الجاية 🧠', 'bot');
-      } catch(e) {}
-    }
-
-  } catch(e) {
-    var box = document.getElementById('chatMessages');
-    if (box && box.lastChild) box.removeChild(box.lastChild);
-    addChatMsg('المساعد', '⚠️ خطأ: ' + e.message, 'bot');
-  }
+  // مش فاهم - اسأل عن المساحة والنوع
+  addChatMsg('المساعد', '❓ الكود: ' + (currentCode || '?') + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
 }
 
 
