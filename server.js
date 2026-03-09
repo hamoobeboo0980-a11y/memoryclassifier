@@ -17,23 +17,18 @@ app.get('/api/health', (req, res) => {
         status: 'ok', 
         uptime: process.uptime(),
         port: PORT,
-        hasApiKey: !!process.env.ANTHROPIC_API_KEY 
+        hasApiKey: true 
     });
 });
 
-// Proxy endpoint for Anthropic API
+// Proxy endpoint for Gemini API
 app.post('/api/analyze', async (req, res) => {
-    const API_KEY = process.env.ANTHROPIC_API_KEY;
+    // استخدام المفتاح الجديد مباشرة كما طلب المستخدم
+    const API_KEY = "AIzaSyDeWn6mfiB-VP8hxBb878qrJ0K0_OGcGc8";
     
-    if (!API_KEY) {
-        console.error('ERROR: ANTHROPIC_API_KEY is missing');
-        return res.status(500).json({ error: 'API Key is not configured on the server.' });
-    }
-
     try {
-        console.log('Received analysis request from frontend...');
+        console.log('Received analysis request from frontend for Gemini...');
         
-        // استخراج البيانات من الـ body
         const { image, code, system } = req.body;
 
         if (!image && !code) {
@@ -41,95 +36,63 @@ app.post('/api/analyze', async (req, res) => {
             return res.status(400).json({ error: 'No image or code provided' });
         }
 
-        // بناء محتوى الرسالة لـ Claude
-        let userContent = [];
+        let promptText = system || "Analyze this IC chip. Identify: 1. Storage Capacity (GB), 2. RAM Size (GB), 3. BGA Type, 4. Chip Type (NAND/EMMC/UFS). Return JSON only: {\"storage\": \"\", \"ram\": \"\", \"bga\": \"\", \"type\": \"\", \"code\": \"\"}";
         
+        let geminiPayload;
+
         if (image) {
-            // تنظيف الـ base64 والتأكد من أنه صالح
             let cleanBase64 = image;
             if (image.includes(',')) {
                 cleanBase64 = image.split(',')[1];
             }
-            
-            // التحقق من صحة الـ base64 (محاولة بسيطة)
-            try {
-                Buffer.from(cleanBase64, 'base64');
-            } catch (e) {
-                console.error('ERROR: Invalid base64 data detected');
-                return res.status(400).json({ error: 'بيانات الصورة غير صالحة (Invalid base64)' });
-            }
 
-            userContent.push({
-                type: "image",
-                source: {
-                    type: "base64",
-                    media_type: "image/jpeg",
-                    data: cleanBase64
-                }
-            });
-            userContent.push({
-                type: "text",
-                text: "Analyze this IC chip image. Identify: 1. Storage Capacity (GB), 2. RAM Size (GB), 3. BGA Type, 4. Chip Type (NAND/EMMC/UFS). Return JSON only: {\"storage\": \"\", \"ram\": \"\", \"bga\": \"\", \"type\": \"\", \"code\": \"\"}"
-            });
-        } else if (code) {
-            userContent.push({
-                type: "text",
-                text: `Analyze this IC chip code: ${code}. Identify: 1. Storage Capacity (GB), 2. RAM Size (GB), 3. BGA Type, 4. Chip Type (NAND/EMMC/UFS). Return JSON only: {\"storage\": \"\", \"ram\": \"\", \"bga\": \"\", \"type\": \"\", \"code\": \"\"}`
-            });
+            geminiPayload = {
+                contents: [{
+                    parts: [
+                        { text: promptText },
+                        {
+                            inline_data: {
+                                mime_type: "image/jpeg",
+                                data: cleanBase64
+                            }
+                        }
+                    ]
+                }]
+            };
+        } else {
+            geminiPayload = {
+                contents: [{
+                    parts: [{ text: `${promptText}\n\nCode to analyze: ${code}` }]
+                }]
+            };
         }
 
-        // بناء الـ Payload لـ Anthropic
-        // ملاحظة: تم تغيير الموديل إلى claude-3-5-sonnet-20240620 لأنه الأكثر استقراراً وتوافراً
-        const anthropicPayload = {
-            model: "claude-3-5-sonnet-20240620", 
-            max_tokens: 1024,
-            system: system || "", 
-            messages: [{
-                role: "user",
-                content: userContent
-            }]
-        };
+        // استخدام Gemini 1.5 Flash لأنه الأسرع والأفضل للصور حالياً
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': API_KEY,
-                'anthropic-version': '2023-06-01'
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify(anthropicPayload)
+            body: JSON.stringify(geminiPayload)
         });
 
         const data = await response.json();
         
         if (!response.ok) {
-            console.error('Anthropic API Error:', JSON.stringify(data));
-            // إذا كان الخطأ بسبب الموديل غير الموجود، نحاول استخدام موديل بديل
-            if (data.error && data.error.type === "not_found_error") {
-                 console.log('Retrying with alternative model...');
-                 anthropicPayload.model = "claude-3-opus-20240229";
-                 const retryResponse = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-api-key': API_KEY,
-                        'anthropic-version': '2023-06-01'
-                    },
-                    body: JSON.stringify(anthropicPayload)
-                });
-                const retryData = await retryResponse.json();
-                if (!retryResponse.ok) {
-                    return res.status(retryResponse.status).json(retryData);
-                }
-                const claudeText = retryData.content[0].text;
-                return res.status(200).json({ result: claudeText });
-            }
+            console.error('Gemini API Error:', JSON.stringify(data));
             return res.status(response.status).json(data);
         }
 
-        const claudeText = data.content[0].text;
+        // استخراج النص من رد Gemini
+        const geminiText = data.candidates[0].content.parts[0].text;
         console.log('Analysis successful, returning result to frontend');
-        res.status(200).json({ result: claudeText });
+        
+        // تنظيف الرد من أي Markdown (مثل ```json ... ```)
+        const cleanText = geminiText.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        res.status(200).json({ result: cleanText });
 
     } catch (error) {
         console.error('Proxy Exception:', error);
