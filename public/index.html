@@ -1235,13 +1235,11 @@ If truly unreadable: {"code":"","company":""}`;
       body:JSON.stringify({
         generationConfig: {
           temperature: 0.1,
-          topP: 0.95,
-          responseMimeType: 'application/json'
+          topP: 0.95
         },
-        system_instruction: {parts:[{text: geminiPrompt}]},
         contents:[{parts:[
           {inline_data:{mime_type:'image/jpeg', data:base64}},
-          {text:'Read the memory IC chip code from this image.'}
+          {text: geminiPrompt + '\n\nRead the memory IC chip code from this image. Return ONLY JSON: {"code":"CODE","company":"COMPANY"}'}
         ]}]
       })
     });
@@ -1278,11 +1276,10 @@ If truly unreadable: {"code":"","company":""}`;
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
-          generationConfig: {temperature: 0.1, topP: 0.95, responseMimeType: 'application/json'},
-          system_instruction: {parts:[{text: 'You are a precision OCR for IC chips. Find the memory chip (Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC). Ignore Qualcomm/CPU/GPU. Read carefully. Return ONLY: {"code":"CODE","company":"COMPANY"}'}]},
+          generationConfig: {temperature: 0.1, topP: 0.95},
           contents:[{parts:[
             {inline_data:{mime_type:'image/jpeg', data:base64}},
-            {text:'Look very carefully at every chip. Find the memory IC code. It is there.'}
+            {text:'You are a precision OCR for IC chips. Find the memory chip (Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC). Ignore Qualcomm/CPU/GPU. Look very carefully. Return ONLY JSON: {"code":"CODE","company":"COMPANY"}'}
           ]}]
         })
       });
