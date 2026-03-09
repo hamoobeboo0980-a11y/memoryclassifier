@@ -1183,68 +1183,58 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   // ===== المرحلة الأولى: اقرأ الكود من الصورة بس =====
-  var readPrompt = `You are an expert mobile phone memory IC chip analyst with 20 years experience.
+  var readPrompt = `You are a world-class expert in mobile phone memory IC chips with 20 years of experience.
 
-STEP 1: Find the MEMORY IC only. Ignore CPU/GPU/Qualcomm/Snapdragon/Mediatek/ARM completely.
+=== STEP 1: FIND THE MEMORY CHIP ===
+Ignore: Qualcomm, Snapdragon, Mediatek, ARM, CPU, GPU
+Find: Samsung, SK Hynix, Toshiba, SanDisk, Kingston, Micron (JW/JZ), YMEC, UNIC
 
-STEP 2: Read every character on the memory IC carefully.
+=== STEP 2: IDENTIFY THE COMPANY FIRST ===
+Look at the chip carefully. What company name or logo do you see?
+This is critical - the company tells you which line to read.
 
-STEP 3: Read the correct line based on company:
-- Samsung NORMAL (KM): LINE 3 is the code
-- Samsung EMMC (KLM/KLU): LINE 2-3 is the code
-- SK Hynix NORMAL (H9): full code
-- SK Hynix EMMC (H26/H28/HN8): full code
-- SanDisk TAIWAN (SDIN): LINE 2
-- SanDisk CHINA (SDIN): LINE 2
-- Toshiba TAIWAN (THG): LINE 3
-- Toshiba JAPAN (THG): LINE 3
-- Kingston (TAIWAN): LINE 4 left side
-- Micron (JW/JZ): full code
-- YMEC: bottom-left last line, full code
+=== STEP 3: READ THE CORRECT LINE ===
+- Samsung KM (عادي): LINE 3
+- Samsung KLM/KLU (زجاجي): LINE 2+3
+- SK Hynix H9 (عادي): full code
+- SK Hynix H26/H28/HN8 (زجاجي): full code
+- SanDisk SDIN: LINE 2
+- Toshiba THG: LINE 3
+- Kingston: LINE 4 left
+- Micron JW/JZ: full code
+- YMEC: bottom-left last line
 - UNIC: last line
 
-STEP 4: Determine storage size from the code:
-Samsung NORMAL (KM) - letter before 000/100/200/600/700/800/900:
-  N=8GB, E=16GB, X=32GB, D=32GB, C=64GB, H=64GB, P=64GB, G=128GB, V=128GB, F=256GB, S=256GB
+=== STEP 4: IF IMAGE IS CLEAR - READ AND RETURN ===
+Read every character carefully. Return the exact code.
 
-Samsung EMMC (KLM/KLU) - look for these 2-letter combos:
-  AG=16GB, BG=32GB, CG=64GB, DG=128GB, EG=256GB, FG=512GB
+=== STEP 5: IF IMAGE IS NOT CLEAR - THINK DEEPLY ===
+Do NOT invent a code. Instead think:
+- What company do I see? (even partially)
+- What letters/numbers can I make out? (even if incomplete)
+- Based on what I can see, what is my best honest reading?
+Return only what you can actually see - never complete or invent characters you cannot see.
 
-SK Hynix NORMAL (H9) - digits at position 5-6:
-  17/18/19=16GB, 26/27=32GB, 52/53=64GB
+=== STORAGE RULES (apply after reading code) ===
+Samsung KM - letter before 000/100/200/600/700/800/900:
+  N=8, E=16, X=32, D=32, C=64, H=64, P=64, G=128, V=128, F=256, S=256
+Samsung KMK7X = 8GB, KMK8X = 16GB
+Samsung KLM/KLU: AG=16, BG=32, CG=64, DG=128, EG=256, FG=512
+SK Hynix H9 positions 5-6: 17/18/19=16, 26/27=32, 52/53=64
+Toshiba THG: G7=16, G8=32, G9=64, T0=128, T1=256, T2=512
+SanDisk: size written in code (16G/32G/64G/128G)
+YMEC 5th char: 6=32, 7=64, 8=128, 9=256 (always glass)
+UNIC: 05G=32, 06G=64, 07G=128 (always glass)
 
-SK Hynix EMMC (H26/H28) - number after H26/H28:
-  54=16GB, 64=32GB, 74=64GB, 88=128GB
+=== RESPOND ONLY WITH JSON ===
+If you can read the code clearly:
+{"code":"EXACT_CODE","company":"COMPANY","storage":"GB_NUMBER","type":"normal or glass"}
 
-SanDisk (SDIN) - storage written explicitly in code: 16G/32G/64G/128G/256G/512G
+If image is unclear but you can partially read:
+{"code":"BEST_PARTIAL_CODE","company":"COMPANY","storage":"","type":"normal or glass","unclear":true}
 
-Toshiba (THG) - look for these combos:
-  G7=16GB, G8=32GB, G9=64GB, T0=128GB, T1=256GB, T2=512GB
-
-YMEC - 5th character: 6=32GB, 7=64GB, 8=128GB, 9=256GB, always GLASS type
-
-UNIC - ends with: 05G=32GB, 06G=64GB, 07G=128GB, always GLASS type
-
-STEP 5: Determine type:
-- If chip has JAPAN or CHINA written = GLASS (زجاجي)
-- If chip has TAIWAN written = NORMAL (عادي)
-- Samsung KLM/KLU = always GLASS
-- H26/H28/HN8 = always GLASS
-- YMEC = always GLASS
-- UNIC = always GLASS
-- Samsung KM = always NORMAL
-- H9 = always NORMAL
-
-CRITICAL RULES:
-1. ALWAYS return the code - NEVER return empty unless image is completely black
-2. ALWAYS return storage if you can determine it
-3. ALWAYS return type (normal/glass)
-4. Even if blurry - return your best reading
-
-Respond ONLY with this JSON, nothing else:
-{"code":"EXACT_CODE","company":"COMPANY","storage":"SIZE_IN_GB_NUMBER_ONLY","type":"normal or glass"}
-If storage cannot be determined: {"code":"EXACT_CODE","company":"COMPANY","storage":"","type":"normal or glass"}
-If completely black image only: {"code":"","company":"","storage":"","type":""}`;
+If completely unreadable (very rare):
+{"code":"","company":"","storage":"","type":""}`;
 
   try {
     var API_KEY = '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';
