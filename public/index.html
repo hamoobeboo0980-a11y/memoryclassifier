@@ -1040,8 +1040,15 @@ function searchInDB(code) {
   // 4. Try shortcuts - العادي first (by company)
   // Samsung (KM): حرف قبل 100/200/600/700/800/900
   if (codeUpper.startsWith('KM')) {
+    // قاعدة خاصة: KMK + رقم + X → 7X=8GB, 8X=16GB, X بس=32GB
+    const kmkNum = codeUpper.match(/KMK(\d)X/);
+    if (kmkNum) {
+      if (kmkNum[1] === '7') return { storage: '8', type: 'عادي', fromShortcut: true };
+      if (kmkNum[1] === '8') return { storage: '16', type: 'عادي', fromShortcut: true };
+    }
+    // القاعدة العامة: حرف قبل 000/100/200/600/700/800/900
     const samsungMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
-    const m = codeUpper.match(/([NEXDCHPGVFS])(100|200|600|700|800|900)/);
+    const m = codeUpper.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900)/);
     if (m && samsungMap[m[1]]) return { storage: samsungMap[m[1]], type: 'عادي', fromShortcut: true };
   }
   
@@ -1804,7 +1811,7 @@ async function processChat(userMsg) {
       // احفظ التصحيح
       var savedL2 = localStorage.getItem('ic_learned');
       var learnedList2 = savedL2 ? JSON.parse(savedL2) : [];
-      learnedList2.push({ b64: lastBase64, code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true });
+      learnedList2.push({ code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true });
       if (learnedList2.length > 50) learnedList2.shift();
       localStorage.setItem('ic_learned', JSON.stringify(learnedList2));
       jbinSave(learnedList2);
@@ -1823,7 +1830,13 @@ async function processChat(userMsg) {
   }
 
   // ===== لو المستخدم بيقول تفاصيل الشركة والمساحة - احفظها =====
-  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
+  // دور على رقم معاه "جيجا/GB" الأول - لو مفيش خد آخر رقم في الرسالة
+  var sizeMatch = userMsg.match(/(\d+)\s*(جيجا|GB|gb)/i) || userMsg.match(/(\d+)\s*G(?![A-Z0-9])/i);
+  if (!sizeMatch) {
+    // خد آخر رقم منفرد في الرسالة (مش جزء من كود)
+    var allNums = [...userMsg.matchAll(/(?<![A-Z0-9-])(\d+)(?![A-Z0-9-])/gi)];
+    if (allNums.length > 0) sizeMatch = allNums[allNums.length - 1];
+  }
   var isGlass = lower.includes('زجاجي') || lower.includes('glass');
   var isNormal = lower.includes('عادي') || lower.includes('normal');
   var codeToSave = mentionedCode || (lastParsed && lastParsed.code) || currentCode;
@@ -1833,7 +1846,6 @@ async function processChat(userMsg) {
     var savedL = localStorage.getItem('ic_learned');
     var learnedList = savedL ? JSON.parse(savedL) : [];
     learnedList.push({
-      b64: lastBase64,
       code: codeToSave,
       company: '',
       type: isGlass ? 'glass' : 'normal',
@@ -1975,11 +1987,10 @@ UNIC: آخر سطر - 05G=32GB, 06G=64GB, 07G=128GB - نوعه زجاجي داي
         var learned = savedL ? JSON.parse(savedL) : [];
         var wrongCode = lastParsed ? lastParsed.code : '';
         learned.push({
-          b64: lastBase64,
           code: parsed.code,
           company: parsed.company,
           type: parsed.type,
-          wrongCode: wrongCode,
+          storage: parsed.storage || '',
           corrected: true
         });
         if (learned.length > 30) learned.shift();
