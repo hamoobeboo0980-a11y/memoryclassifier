@@ -742,8 +742,8 @@ async function analyzeImage(base64) {
     document.getElementById('resultCard').classList.remove('show');
     
     try {
-        // Correct URL for v1beta as per Google documentation for gemini-1.5-flash
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // Final Fix: Using gemini-2.0-flash with v1beta as confirmed by user testing
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
             contents: [{
                 parts: [
