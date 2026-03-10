@@ -257,12 +257,6 @@
   }
 
   /* Manual input */
-  .chat-msg { font-size:13px; line-height:1.5; padding:6px 10px; border-radius:10px; max-width:90%; }
-  .chat-user { background:rgba(0,212,255,0.1); border:1px solid rgba(0,212,255,0.2); align-self:flex-end; color:var(--text); }
-  .chat-bot { background:rgba(255,255,255,0.04); border:1px solid var(--border); align-self:flex-start; color:var(--text); }
-  .chat-from { font-weight:700; color:var(--accent); margin-left:4px; }
-  .chat-bot .chat-from { color:var(--muted); }
-
   .manual-section {
     background: var(--card);
     border: 1px solid var(--border);
@@ -748,12 +742,12 @@ async function analyzeImage(base64) {
     document.getElementById('resultCard').classList.remove('show');
     
     try {
-        // Updated URL for v1 API (more stable)
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        // Correct URL for v1beta as per Google documentation for gemini-1.5-flash
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
         const payload = {
             contents: [{
                 parts: [
-                    { text: "Identify this IC chip. Return ONLY a JSON object: {\"storage\":\"\",\"ram\":\"\",\"bga\":\"\",\"type\":\"\",\"code\":\"\"}" },
+                    { text: "Identify this IC chip from the image. Provide storage size in GB, RAM size, BGA type, chip type (EMMC/UFS/NAND), and the detected code. Return ONLY a JSON object like: {\"storage\":\"32\",\"ram\":\"3\",\"bga\":\"221\",\"type\":\"EMMC\",\"code\":\"H9TQ26ADFTMC\"}" },
                     { inline_data: { mime_type: "image/jpeg", data: base64 } }
                 ]
             }]
