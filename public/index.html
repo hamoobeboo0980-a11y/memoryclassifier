@@ -1229,7 +1229,7 @@ Return ONLY this JSON, nothing else:
 If truly unreadable: {"code":"","company":""}`;
 
   try {
-    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=' + GEMINI_KEY, {
+    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + GEMINI_KEY, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1272,7 +1272,7 @@ If truly unreadable: {"code":"","company":""}`;
 
     // لو ما لقاش كود - حاول تاني بـ Gemini thinking model
     if (!detectedCode || (detectedCode && !isValidCode(detectedCode))) {
-      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=' + GEMINI_KEY, {
+      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + GEMINI_KEY, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
