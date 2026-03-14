@@ -1229,19 +1229,10 @@ Return ONLY this JSON, nothing else:
 If truly unreadable: {"code":"","company":""}`;
 
   try {
-    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_KEY, {
+    var geminiRes = await fetch('/api/analyze', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        generationConfig: {
-          temperature: 0.1,
-          topP: 0.95
-        },
-        contents:[{parts:[
-          {inline_data:{mime_type:'image/jpeg', data:base64}},
-          {text: geminiPrompt + '\n\nRead the memory IC chip code from this image. Return ONLY JSON: {"code":"CODE","company":"COMPANY"}'}
-        ]}]
-      })
+      body:JSON.stringify({ imageBase64: base64 })
     });
 
     if (!geminiRes.ok) {
@@ -1251,18 +1242,8 @@ If truly unreadable: {"code":"","company":""}`;
       return;
     }
 
-    var geminiData = await geminiRes.json();
-    var text = geminiData.candidates && geminiData.candidates[0] && geminiData.candidates[0].content && geminiData.candidates[0].content.parts ? geminiData.candidates[0].content.parts[0].text : '';
-    var parsed;
-    try {
-      var jsonMatch = text.match(/\{[^{}]*"code"[^{}]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
-      }
-    }
-    catch(e) { parsed = {code:'', company:''}; }
+    var parsed = await geminiRes.json();
+    if (!parsed.code) parsed = {code:'', company:''};
 
     lastParsed = parsed;
     var detectedCode = parsed.code || '';
@@ -1272,29 +1253,13 @@ If truly unreadable: {"code":"","company":""}`;
 
     // لو ما لقاش كود - حاول تاني بـ Gemini thinking model
     if (!detectedCode || (detectedCode && !isValidCode(detectedCode))) {
-      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_KEY, {
+      var retryRes = await fetch('/api/analyze', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          generationConfig: {temperature: 0.1, topP: 0.95},
-          contents:[{parts:[
-            {inline_data:{mime_type:'image/jpeg', data:base64}},
-            {text:'You are a precision OCR for IC chips. Find the memory chip (Samsung/Hynix/Toshiba/SanDisk/Kingston/Micron/YMEC/UNIC). Ignore Qualcomm/CPU/GPU. Look very carefully. Return ONLY JSON: {"code":"CODE","company":"COMPANY"}'}
-          ]}]
-        })
+        body:JSON.stringify({ imageBase64: base64 })
       });
-      var retryData = await retryRes.json();
-      var retryText = retryData.candidates && retryData.candidates[0] && retryData.candidates[0].content && retryData.candidates[0].content.parts && retryData.candidates[0].content.parts[0] ? retryData.candidates[0].content.parts[0].text : '';
-      var retryParsed;
-      try {
-        var retryJsonMatch = retryText.match(/\{[^{}]*"code"[^{}]*\}/);
-        if (retryJsonMatch) {
-          retryParsed = JSON.parse(retryJsonMatch[0]);
-        } else {
-          retryParsed = JSON.parse(retryText.replace(/```json|```/g,'').trim());
-        }
-      }
-      catch(e) { retryParsed = {code:'', company:''}; }
+      var retryParsed = await retryRes.json();
+      if (!retryParsed.code) retryParsed = {code:'', company:''};
       
       if (retryParsed.code && isValidCode(retryParsed.code)) {
         parsed = retryParsed;
