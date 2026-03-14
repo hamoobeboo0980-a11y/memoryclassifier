@@ -5,24 +5,35 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// API Key for Gemini (Pay-as-you-go)
-const genAI = new GoogleGenerativeAI("AIzaSyDeWn6mfiB-VP8hxBb878qrJ0K0_OGcGc8");
+const genAI = new GoogleGenerativeAI("AIzaSyBJ6lVPhbyb1VPss1UY4Abo2TSZ4AWbfoA");
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// New Backend API for Chip Analysis
 app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64 } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        // Use Pro model for Paid users
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-        const prompt = "Identify this IC chip from the image. Provide storage size in GB, RAM size, BGA type, chip type (EMMC/UFS/NAND), and the detected code. Return ONLY a JSON object like: {\"storage\":\"32\",\"ram\":\"3\",\"bga\":\"221\",\"type\":\"EMMC\",\"code\":\"H9TQ26ADFTMC\"}";
-        
+        const prompt = `You are a high-precision OCR engine specialized in mobile phone memory IC chips.
+Find the memory chip. IGNORE Qualcomm/Snapdragon/Mediatek/CPU/GPU completely.
+FIND: Samsung (KM/KLM/KLU), SK Hynix (H9/H26/H28/HN8), Toshiba (THG), SanDisk (SDIN), Kingston, Micron (JW/JZ), YMEC, UNIC.
+Read the code carefully by company rules:
+- Samsung KM: read LINE 3
+- Samsung KLM/KLU: read LINES 2+3
+- SK Hynix H9: read full code
+- SanDisk SDIN: read LINE 2
+- Toshiba THG: read LINE 3
+- Kingston: read LINE 4 left side
+- Micron JW/JZ: read full code
+- YMEC: read bottom-left last line
+- UNIC: read last line
+Return ONLY this JSON, nothing else: {"code":"THE_CODE","company":"COMPANY_NAME"}
+If truly unreadable: {"code":"","company":""}`;
+
         const result = await model.generateContent([
             prompt,
             { inlineData: { data: imageBase64, mimeType: "image/jpeg" } }
@@ -30,22 +41,27 @@ app.post('/api/analyze', async (req, res) => {
 
         const response = await result.response;
         let text = response.text();
-        
-        // Clean JSON response
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        res.json(JSON.parse(text));
+
+        let parsed;
+        try {
+            const jsonMatch = text.match(/\{[^{}]*"code"[^{}]*\}/);
+            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
+        } catch(e) {
+            parsed = { code: '', company: '' };
+        }
+
+        res.json(parsed);
     } catch (error) {
         console.error("Gemini Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// توجيه أي طلب غير معروف لملف index.html
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
