@@ -1197,7 +1197,7 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   // ===== المرحلة الأولى: اقرأ الكود من الصورة بـ Gemini =====
-  var GEMINI_KEY = 'AIzaSyDeWn6mfiB-VP8hxBb878qrJ0K0_OGcGc8';
+  var GEMINI_KEY = 'AIzaSyBJ6lVPhbyb1VPss1UY4Abo2TSZ4AWbfoA';
   var geminiPrompt = `You are a high-precision OCR engine specialized in micro-electronics IC chips on mobile phone circuit boards.
 
 Your ONLY job: Extract the memory chip code.
@@ -1229,7 +1229,7 @@ Return ONLY this JSON, nothing else:
 If truly unreadable: {"code":"","company":""}`;
 
   try {
-    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + GEMINI_KEY, {
+    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_KEY, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -1272,7 +1272,7 @@ If truly unreadable: {"code":"","company":""}`;
 
     // لو ما لقاش كود - حاول تاني بـ Gemini thinking model
     if (!detectedCode || (detectedCode && !isValidCode(detectedCode))) {
-      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=' + GEMINI_KEY, {
+      var retryRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEMINI_KEY, {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
