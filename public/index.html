@@ -707,6 +707,16 @@
         <div class="q-item"><div class="q-dot" id="qLight"></div> إضاءة</div>
         <div class="q-item" style="margin-right:auto;font-size:10px;color:var(--muted)" id="autoMsg">وجّه الكاميرا</div>
       </div>
+      <!-- Result Overlay inside camera -->
+      <div id="resultOverlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);z-index:20;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+        <img id="imgPreviewOverlay" style="max-height:45%;max-width:90%;border-radius:10px;object-fit:contain">
+        <div id="typeBadgeOverlay"></div>
+        <div style="display:flex;align-items:flex-end;gap:4px">
+          <span id="storageNumOverlay" style="font-size:52px;font-weight:900;color:#00d4ff;line-height:1">--</span>
+          <span style="font-size:22px;color:#00d4ff;padding-bottom:8px">GB</span>
+        </div>
+        <div id="detectedCodeOverlay" style="font-size:13px;color:#aaa;letter-spacing:1px"></div>
+      </div>
     </div>
     <!-- 4 buttons row -->
     <div style="display:flex;gap:6px;padding:10px;background:var(--card)">
@@ -1408,6 +1418,16 @@ function displayResult(code, found, company) {
   document.getElementById('detectedCode').textContent = code;
   document.getElementById('resultTime').textContent = new Date().toLocaleTimeString('ar');
 
+  // Show overlay inside camera
+  var overlay = document.getElementById('resultOverlay');
+  if (overlay) {
+    overlay.style.display = 'flex';
+    document.getElementById('detectedCodeOverlay').textContent = code;
+    var imgOvr = document.getElementById('imgPreviewOverlay');
+    var imgMain = document.getElementById('imgPreview');
+    if (imgMain && imgMain.src) imgOvr.src = imgMain.src;
+  }
+
   if (found) {
     const storage = found.storage || (found.capacity ? found.capacity.split('+')[0] : '?');
     currentDisplayStorage = storage; // احفظ المساحة الحالية
@@ -1415,8 +1435,13 @@ function displayResult(code, found, company) {
 
     document.getElementById('typeBadge').innerHTML = 
       `<div class="type-badge ${isGlass ? 'glass' : 'normal'}">${isGlass ? '🔵 زجاجي' : '⚪ عادي'}</div>`;
+    if (document.getElementById('typeBadgeOverlay'))
+      document.getElementById('typeBadgeOverlay').innerHTML = 
+        `<div style="font-size:16px;font-weight:700;color:${isGlass ? '#00d4ff' : '#aaa'}">${isGlass ? '🔵 زجاجي' : '⚪ عادي'}</div>`;
 
     document.getElementById('storageNum').textContent = storage;
+    if (document.getElementById('storageNumOverlay'))
+      document.getElementById('storageNumOverlay').textContent = storage;
 
     let ramHtml = '';
     if (found.type === 'عادي' && found.capacity && found.capacity.includes('+')) {
@@ -1434,7 +1459,9 @@ function displayResult(code, found, company) {
 
   } else {
     document.getElementById('typeBadge').innerHTML = '<div class="type-badge normal">⚠️ كود جديد - تم الحفظ</div>';
+    if (document.getElementById('typeBadgeOverlay')) document.getElementById('typeBadgeOverlay').innerHTML = '<div style="font-size:16px;font-weight:700;color:#ff6b35">⚠️ كود جديد</div>';
     document.getElementById('storageNum').textContent = '?';
+    if (document.getElementById('storageNumOverlay')) document.getElementById('storageNumOverlay').textContent = '?';
     document.getElementById('ramBga').innerHTML = 
       `<div class="info-chip" style="color:var(--accent2)">📋 هيوصلك الكود عشان تعرّفهوله</div>`;
   }
@@ -1471,6 +1498,7 @@ function nextPhoto() {
   showResult(false);
   showError(false);
   document.getElementById('imgPreview').classList.remove('show');
+  var ov = document.getElementById('resultOverlay'); if (ov) ov.style.display = 'none';
   document.getElementById('manualCode').value = '';
   autoCapture.progress = 0;
   autoCapture.prevFrame = null;
