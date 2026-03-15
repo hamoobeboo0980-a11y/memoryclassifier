@@ -16,7 +16,7 @@ app.post('/api/analyze', async (req, res) => {
         const { imageBase64 } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-pro-exp-02-05" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const prompt = `You are a high-precision OCR engine specialized in mobile phone memory IC chips.
 Find the memory chip. IGNORE Qualcomm/Snapdragon/Mediatek/CPU/GPU completely.
