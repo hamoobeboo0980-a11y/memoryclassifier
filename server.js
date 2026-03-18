@@ -18,22 +18,17 @@ app.post('/api/analyze', async (req, res) => {
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        const prompt = `Find the memory IC chip on this mobile phone board.
-IGNORE completely: CPU, GPU, Qualcomm, Snapdragon, Mediatek.
-FIND ONLY: Samsung (KM/KLM/KLU), SK Hynix (H9/H26/H28/HN8), Toshiba (THG), SanDisk (SDIN), Kingston, Micron (JW/JZ), YMEC.
-Read ONLY the correct line based on company:
-- Samsung KM: LINE 3 only
-- Samsung KLM/KLU: LINE 1 only
-- SK Hynix H9: full code
-- SK Hynix H26/H28/HN8: full code
-- SanDisk SDIN: LINE 2 only
-- Toshiba THG: LINE 3 only
-- Kingston: LINE 4 left side only
-- Micron JW/JZ: full code
-- YMEC: last line bottom-left only
-Read carefully character by character. If image is unclear, return what you can see without inventing.
-Return ONLY this JSON: {"code":"EXACT_CODE","company":"COMPANY_NAME"}
-If unreadable: {"code":"","company":""}`;
+        const prompt = `Identify the Memory IC on the mobile phone board first and completely ignore any CPU, GPU, Qualcomm, Snapdragon, or Mediatek chips, then if the image is upside down or mirrored mentally rotate it until the text is upright and readable, then read the engraved code on the Memory IC line by line while strictly reading characters exactly as they appear without guessing or completing any unclear parts and only return what is actually visible, then determine the company from the beginning of the code and apply the correct rule below to select the required part:
+Samsung (KM): read the third line only
+Samsung (KLM / KLU): read the first line only
+SK Hynix (H9): read the full code
+SK Hynix (H26 / H28 / HN8): read the full code
+SanDisk (SDIN): read the second line only
+Toshiba (THG): read the third line only
+Kingston: read the left part of the fourth line only
+Micron (JW / JZ): read the full code
+YMTC (YMEC): read the bottom-left last line only
+then return only this JSON with no extra text {"code":"EXACT_CODE","company":"COMPANY_NAME"} and if the code is not readable return {"code":"","company":""}`;
 
         const result = await model.generateContent({
             contents: [{ parts: [
