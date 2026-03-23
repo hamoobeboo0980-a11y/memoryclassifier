@@ -180,8 +180,7 @@ ${learnedSection}
             ]}],
             generationConfig: {
                 temperature: 0,
-                topP: 1,
-                responseMimeType: "application/json"
+                topP: 1
             }
         });
 
