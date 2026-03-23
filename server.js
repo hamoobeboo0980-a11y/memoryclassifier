@@ -99,7 +99,7 @@ app.post('/api/analyze', async (req, res) => {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
         // بناء قسم الدروس المتعلمة
         let learnedSection = '';
@@ -180,7 +180,8 @@ ${learnedSection}
             ]}],
             generationConfig: {
                 temperature: 0,
-                topP: 1
+                topP: 1,
+                responseMimeType: "application/json"
             }
         });
 
@@ -190,10 +191,16 @@ ${learnedSection}
 
         let parsed;
         try {
-            const jsonMatch = text.match(/\{[^{}]*"code"[^{}]*\}/);
-            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(text);
-        } catch(e) {
-            parsed = { code: '', storage: '', type: '', company: '' };
+            // محاولة 1: parse مباشر
+            parsed = JSON.parse(text);
+        } catch(e1) {
+            try {
+                // محاولة 2: استخراج JSON بـ regex
+                const jsonMatch = text.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
+                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { code: '', storage: '', type: '', company: '' };
+            } catch(e2) {
+                parsed = { code: '', storage: '', type: '', company: '' };
+            }
         }
 
         res.json(parsed);
