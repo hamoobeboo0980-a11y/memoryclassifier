@@ -508,21 +508,101 @@
 
   .loading-card.show { display: block; }
 
+  /* Loading Animation */
   .loading-spinner {
-    width: 48px;
-    height: 48px;
+    position: relative;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 20px;
+  }
+  .loading-spinner::before,
+  .loading-spinner::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+  }
+  .loading-spinner::before {
+    width: 72px;
+    height: 72px;
     border: 3px solid var(--border);
     border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 16px;
+    animation: spin 1s linear infinite;
+  }
+  .loading-spinner::after {
+    width: 50px;
+    height: 50px;
+    top: 11px;
+    left: 11px;
+    border: 3px solid transparent;
+    border-top-color: #7b6cff;
+    animation: spin 0.6s linear infinite reverse;
+  }
+  .loading-ic-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 22px;
+    animation: pulse-icon 1.5s ease-in-out infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse-icon {
+    0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(0.9); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
   }
 
-  @keyframes spin { to { transform: rotate(360deg); } }
-
   .loading-text {
-    font-size: 15px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+    transition: all 0.4s ease;
+  }
+  .loading-sub {
+    font-size: 13px;
     color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .loading-steps {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .loading-step {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--muted);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    transition: all 0.4s ease;
+  }
+  .loading-step.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(0,212,255,0.08);
+  }
+  .loading-step.done {
+    color: #00e676;
+    border-color: #00e676;
+    background: rgba(0,230,118,0.08);
+  }
+  .loading-step .step-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .loading-step.active .step-dot {
+    animation: blink 0.8s ease-in-out infinite;
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
   }
 
   /* Error */
@@ -756,8 +836,16 @@
 
   <!-- Loading -->
   <div class="loading-card" id="loadingCard">
-    <div class="loading-spinner"></div>
-    <div class="loading-text">جاري قراءة الشريحة...</div>
+    <div class="loading-spinner">
+      <span class="loading-ic-icon">🔍</span>
+    </div>
+    <div class="loading-text" id="loadingText">جاري قراءة الشريحة...</div>
+    <div class="loading-sub" id="loadingSub">يرجى الانتظار</div>
+    <div class="loading-steps">
+      <div class="loading-step" id="step1"><span class="step-dot"></span> قراءة الكود</div>
+      <div class="loading-step" id="step2"><span class="step-dot"></span> البحث في الجداول</div>
+      <div class="loading-step" id="step3"><span class="step-dot"></span> النتيجة</div>
+    </div>
   </div>
 
   <!-- Error -->
@@ -1203,8 +1291,52 @@ function displayResult(code, found, company) {
   showResult(true);
 }
 
+let loadingStepTimer = null;
+
 function showLoading(show) {
   document.getElementById('loadingCard').classList.toggle('show', show);
+  if (show) {
+    // إعادة تعيين الخطوات
+    ['step1','step2','step3'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('active','done');
+    });
+    document.getElementById('loadingText').textContent = 'جاري قراءة الشريحة...';
+    document.getElementById('loadingSub').textContent = 'يرجى الانتظار';
+
+    // الخطوة 1: قراءة الكود
+    document.getElementById('step1').classList.add('active');
+
+    // الخطوة 2: بعد 4 ثواني
+    loadingStepTimer = setTimeout(() => {
+      document.getElementById('step1').classList.remove('active');
+      document.getElementById('step1').classList.add('done');
+      document.getElementById('step1').innerHTML = '<span class="step-dot"></span> ✓ قراءة الكود';
+      document.getElementById('step2').classList.add('active');
+      document.getElementById('loadingText').textContent = 'جاري البحث في الجداول...';
+      document.getElementById('loadingSub').textContent = 'مطابقة الكود مع قاعدة البيانات';
+
+      // الخطوة 3: بعد 8 ثواني
+      loadingStepTimer = setTimeout(() => {
+        document.getElementById('step2').classList.remove('active');
+        document.getElementById('step2').classList.add('done');
+        document.getElementById('step2').innerHTML = '<span class="step-dot"></span> ✓ البحث في الجداول';
+        document.getElementById('step3').classList.add('active');
+        document.getElementById('loadingText').textContent = 'جاري استخراج النتيجة...';
+        document.getElementById('loadingSub').textContent = 'لحظات وستظهر النتيجة';
+      }, 4000);
+    }, 4000);
+  } else {
+    if (loadingStepTimer) clearTimeout(loadingStepTimer);
+    // إعادة تعيين عند الإخفاء
+    ['step1','step2','step3'].forEach(id => {
+      const el = document.getElementById(id);
+      el.classList.remove('active','done');
+    });
+    document.getElementById('step1').innerHTML = '<span class="step-dot"></span> قراءة الكود';
+    document.getElementById('step2').innerHTML = '<span class="step-dot"></span> البحث في الجداول';
+    document.getElementById('step3').innerHTML = '<span class="step-dot"></span> النتيجة';
+  }
 }
 
 function showResult(show) {
