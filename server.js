@@ -99,7 +99,7 @@ app.post('/api/analyze', async (req, res) => {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // بناء قسم الدروس المتعلمة
         let learnedSection = '';
