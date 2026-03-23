@@ -22,76 +22,123 @@ const EMMC_DB = {"16":["KLMAG4FE4B-B002","KLMAG4FEAB-B002","KLMAG2GEAC-B001","KL
 const MICRON_DB = {"8":["JWA60","JW687"],"16":["JW788"],"32":["JZ132"],"64":["JZ023","JZ160","JZ495","JZ075","JZ178","JZ196","JZ528"],"128":["JZ057","JZ144","JZ156","JZ064","JZ380","JZ341","JZ417","JZ447","JZ413"],"256":["JZ067","JZ161","JZ369","JZ418","JZ449","JZ348","JZ242","JZ459"],"512":["JZ347"]};
 
 // ═══════════════════════════════════════════════════════════════
-// بناء نص الجداول للبرومبت
+// دالة البحث في قواعد البيانات (بدون Gemini)
 // ═══════════════════════════════════════════════════════════════
 
-function buildDBText() {
-    let lines = [];
+function searchInDB(code) {
+    if (!code) return null;
+    const upperCode = code.toUpperCase().trim();
 
-    lines.push('=== جدول العادي ===');
-    lines.push('(المساحة+RAM: قائمة الأكواد)');
+    // 1) بحث مباشر في جدول العادي
     for (const [capacity, codes] of Object.entries(NORMAL_DB)) {
-        const storage = capacity.split('+')[0];
-        lines.push(`${capacity}GB → ${codes.join(' | ')}`);
+        for (const c of codes) {
+            if (upperCode === c.toUpperCase() || upperCode.startsWith(c.toUpperCase().split('-')[0])) {
+                const storage = capacity.split('+')[0];
+                return { code: upperCode, storage, type: 'عادي', company: detectCompany(upperCode) };
+            }
+        }
     }
 
-    lines.push('');
-    lines.push('=== جدول الزجاجي (EMMC/UFS) ===');
-    lines.push('(المساحة: قائمة الأكواد)');
+    // 2) بحث مباشر في جدول الزجاجي (EMMC)
     for (const [size, codes] of Object.entries(EMMC_DB)) {
-        lines.push(`${size}GB → ${codes.join(' | ')}`);
+        for (const c of codes) {
+            if (upperCode === c.toUpperCase() || upperCode.startsWith(c.toUpperCase().split('-')[0])) {
+                return { code: upperCode, storage: size, type: 'زجاجي', company: detectCompany(upperCode) };
+            }
+        }
     }
 
-    lines.push('');
-    lines.push('=== Micron (JW/JZ) - زجاجي ===');
+    // 3) بحث في Micron
     for (const [size, codes] of Object.entries(MICRON_DB)) {
-        lines.push(`${size}GB → ${codes.join(' | ')}`);
+        for (const c of codes) {
+            if (upperCode === c.toUpperCase()) {
+                return { code: upperCode, storage: size, type: 'زجاجي', company: 'Micron' };
+            }
+        }
     }
 
-    return lines.join('\n');
+    // 4) الاختصارات - Samsung EMMC (KLM/KLU)
+    if (upperCode.startsWith('KLM') || upperCode.startsWith('KLU')) {
+        const twoChars = upperCode.substring(4, 6);
+        const emmcMap = { 'AG': '16', 'BG': '32', 'CG': '64', 'DG': '128', 'EG': '256', 'FG': '512' };
+        if (emmcMap[twoChars]) {
+            return { code: upperCode, storage: emmcMap[twoChars], type: 'زجاجي', company: 'Samsung' };
+        }
+    }
+
+    // 5) الاختصارات - Samsung عادي (KM)
+    if (upperCode.startsWith('KM') && !upperCode.startsWith('KLM') && !upperCode.startsWith('KLU')) {
+        const match = upperCode.match(/([NEXDCHPGVFS])(?:000|100|200|600|700|800|900)/i);
+        if (match) {
+            const letterMap = { 'N': '8', 'E': '16', 'X': '32', 'D': '32', 'C': '64', 'H': '64', 'P': '64', 'G': '128', 'V': '128', 'F': '256', 'S': '256' };
+            const letter = match[1].toUpperCase();
+            if (letterMap[letter]) {
+                return { code: upperCode, storage: letterMap[letter], type: 'عادي', company: 'Samsung' };
+            }
+        }
+    }
+
+    // 6) الاختصارات - SK Hynix عادي (H9TQ)
+    if (upperCode.startsWith('H9TQ') || upperCode.startsWith('H9HP') || upperCode.startsWith('H9HQ')) {
+        const numStr = upperCode.substring(4, 6);
+        const hynixMap = { '17': '16', '18': '16', '19': '16', '26': '32', '27': '32', '52': '64', '53': '64', '16': '128', '21': '256', '22': '256' };
+        if (hynixMap[numStr]) {
+            return { code: upperCode, storage: hynixMap[numStr], type: upperCode.startsWith('H9HP') || upperCode.startsWith('H9HQ') ? 'زجاجي' : 'عادي', company: 'SK Hynix' };
+        }
+    }
+
+    // 7) الاختصارات - SK Hynix EMMC (H26/H28/HN8)
+    if (upperCode.startsWith('H26M') || upperCode.startsWith('H28') || upperCode.startsWith('HN8') || upperCode.startsWith('HNST')) {
+        const numStr = upperCode.startsWith('H26M') ? upperCode.substring(4, 6) : upperCode.substring(3, 5);
+        const h26Map = { '54': '16', '52': '16', '64': '32', '62': '32', '74': '64', '78': '64', '88': '128', '87': '128', '8D': '128', '9Q': '256', '9X': '256' };
+        if (h26Map[numStr]) {
+            return { code: upperCode, storage: h26Map[numStr], type: 'زجاجي', company: 'SK Hynix' };
+        }
+    }
+
+    // 8) الاختصارات - Toshiba (THG)
+    if (upperCode.startsWith('THG')) {
+        const twoChars = upperCode.substring(6, 8);
+        const thgMap = { 'G7': '16', 'G8': '32', 'G9': '64', 'T0': '128', 'T1': '256', 'T2': '512' };
+        if (thgMap[twoChars]) {
+            return { code: upperCode, storage: thgMap[twoChars], type: 'زجاجي', company: 'Toshiba' };
+        }
+    }
+
+    // 9) الاختصارات - SanDisk (SDIN)
+    if (upperCode.startsWith('SDIN') || upperCode.startsWith('SDAD') || upperCode.startsWith('SDINE') || upperCode.startsWith('SDINF')) {
+        const sizeMatch = upperCode.match(/(\d+)G/);
+        if (sizeMatch) {
+            return { code: upperCode, storage: sizeMatch[1], type: 'زجاجي', company: 'SanDisk' };
+        }
+    }
+
+    // 10) الاختصارات - YMEC (الحرف الخامس)
+    if (upperCode.startsWith('TY') || upperCode.startsWith('TYD') || upperCode.startsWith('TYE')) {
+        const ymecMap = { '6': '32', '7': '64', '8': '128', '9': '256' };
+        const ch = upperCode[4];
+        if (ymecMap[ch]) {
+            return { code: upperCode, storage: ymecMap[ch], type: 'عادي', company: 'YMEC' };
+        }
+    }
+
+    return null; // لم يُعثر على الكود
 }
 
-const DB_TEXT = buildDBText();
-
-const SHORTCUTS_TEXT = `=== اختصارات العادي ===
-
-Samsung (KM) - الحرف قبل 000/100/200/600/700/800/900 في الكود:
-N=8GB | E=16GB | X=32GB | D=32GB | C=64GB | H=64GB | P=64GB | G=128GB | V=128GB | F=256GB | S=256GB
-مثال: KMK7X000VM → X قبل 000 → 32GB عادي
-مثال: KMRH60014M → H قبل 600 → 64GB عادي
-
-SK Hynix (H9) - الرقمان في الموضع 5-6 من الكود:
-17/18/19 = 16GB | 26/27 = 32GB | 52/53 = 64GB | 16 = 128GB
-مثال: H9TQ17ADFTMC → 17 → 16GB عادي
-مثال: H9TQ52ACLTMC → 52 → 64GB عادي
-
-SanDisk (SDIN) - المساحة مكتوبة صريحة في الكود:
-16G=16GB | 32G=32GB | 64G=64GB | 128G=128GB | 256G=256GB | 512G=512GB
-
-=== اختصارات الزجاجي ===
-
-Samsung EMMC (KLM/KLU) - الحرفان في الموضع 5-6 من الكود:
-AG=16GB | BG=32GB | CG=64GB | DG=128GB | EG=256GB | FG=512GB
-مثال: KLMAG4FE4B-B002 → AG → 16GB زجاجي
-مثال: KLMDG8JENB-B041 → DG → 128GB زجاجي
-
-Toshiba (THG) - الحرفان في الموضع 7-8 من الكود:
-G7=16GB | G8=32GB | G9=64GB | T0=128GB | T1=256GB | T2=512GB
-مثال: THGBMAG7A2JBAIR → G7 → 16GB زجاجي
-
-SK Hynix EMMC (H26/H28) - الأرقام بعد H26M أو H28:
-54=16GB | 64=32GB | 74=64GB | 88=128GB | 9=256GB
-مثال: H26M54002EMR → 54 → 16GB زجاجي
-مثال: H28U88301AMR → 88 → 128GB زجاجي
-
-UNIC - آخر 3 حروف من الكود:
-05G = 32GB | 06G = 64GB | 07G = 128GB
-
-YMEC - الحرف الخامس من الكود:
-6=32GB | 7=64GB | 8=128GB | 9=256GB`;
+function detectCompany(code) {
+    const u = code.toUpperCase();
+    if (u.startsWith('KLM') || u.startsWith('KLU') || u.startsWith('KM')) return 'Samsung';
+    if (u.startsWith('H9') || u.startsWith('H26') || u.startsWith('H28') || u.startsWith('HN')) return 'SK Hynix';
+    if (u.startsWith('THG')) return 'Toshiba';
+    if (u.startsWith('SDIN') || u.startsWith('SDAD')) return 'SanDisk';
+    if (u.startsWith('JW') || u.startsWith('JZ')) return 'Micron';
+    if (u.startsWith('TY')) return 'YMEC';
+    if (u.startsWith('08EMCP') || u.startsWith('16EMCP')) return 'UNIC';
+    return 'Unknown';
+}
 
 // ═══════════════════════════════════════════════════════════════
-// API Endpoint
+// API Endpoint - المنطق الجديد
 // ═══════════════════════════════════════════════════════════════
 
 app.post('/api/analyze', async (req, res) => {
@@ -101,116 +148,106 @@ app.post('/api/analyze', async (req, res) => {
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        // بناء قسم الدروس المتعلمة
-        let learnedSection = '';
-        if (learnedCodes && learnedCodes.length > 0) {
-            learnedSection = '\n═══════════════════════════════════════\nأكواد تعلمتها من المستخدم - أولوية قصوى\n═══════════════════════════════════════\n';
-            for (const item of learnedCodes) {
-                learnedSection += `${item.code} → ${item.storage}GB ${item.type === 'glass' ? 'زجاجي' : 'عادي'}\n`;
-            }
-        }
+        // ─────────────────────────────────────────────────────────
+        // المرحلة 1: Gemini يقرأ الكود فقط من الصورة (سريع جداً)
+        // ─────────────────────────────────────────────────────────
+        const readPrompt = `أنت خبير في قراءة الأكواد المنقوشة على شرائح الذاكرة (IC chips) في الهواتف.
 
-        const prompt = `أنت خبير متخصص بدرجة عالية جداً في قراءة وتصنيف شرائح الذاكرة (IC chips) على لوحات الهواتف المحمولة.
+مهمتك الوحيدة: انظر للصورة وابحث عن شريحة الذاكرة الرئيسية.
+- تجاهل تماماً: CPU / Snapdragon / Mediatek / GPU / أي شريحة غير الذاكرة
+- ركز على شريحة الذاكرة فقط: Samsung (KM/KLM/KLU) / SK Hynix (H9/H26/H28) / Toshiba (THG) / SanDisk (SDIN) / Micron (JW/JZ) / YMEC (TY) / UNIC (08EMCP/16EMCP)
 
-مهمتك: انظر للصورة، اقرأ كود شريحة الذاكرة بدقة شديدة، ثم ابحث في الجداول وحدد المساحة والنوع.
+اقرأ الكود المنقوش على شريحة الذاكرة بدقة شديدة.
+- لو Samsung KM: الكود الرئيسي + اللاحقة (مثل KMK7X000VM-B314)
+- لو Samsung KLM/KLU: الكود الكامل + اللاحقة (مثل KLMAG4FE4B-B002)
+- لو SK Hynix H9: الكود الكامل (مثل H9TQ17ADFTMCUR)
+- لو Toshiba THG: الكود الكامل (مثل THGBMAG7A2JBAIR)
+- لو SanDisk: الكود الكامل (مثل SDIN7DU2-16G)
+- لو Micron JW/JZ: الكود فقط (مثل JZ144)
 
-═══════════════════════════════════════
-الخطوة 1: تجاهل تماماً
-═══════════════════════════════════════
-تجاهل: Qualcomm / Snapdragon / Mediatek / CPU / GPU
-ركز فقط على شريحة الذاكرة (Samsung / SK Hynix / Toshiba / SanDisk / Micron / Kingston / YMEC / UNIC)
+أرجع الكود فقط كنص خام بدون أي شرح. مثال: KLMAG4FE4B-B002`;
 
-═══════════════════════════════════════
-الخطوة 2: اقرأ الكود بدقة شديدة
-═══════════════════════════════════════
-قواعد القراءة حسب الشركة:
-
-Samsung (KM): اقرأ السطر الثالث كود رئيسي + السطر الذي فوقه (اللاحقة مثل B314, B419, B316)
-  مثال: السطر الثالث = KMK7X000VM والسطر فوقه = B314 → الكود الكامل = KMK7X000VM-B314
-
-Samsung (KLM/KLU): اقرأ الكود الرئيسي + اللاحقة من السطر المجاور
-  مثال: KLMAG4FE4B + B002 → الكود الكامل = KLMAG4FE4B-B002
-
-SK Hynix (H9): اقرأ الكود الكامل في سطر واحد (مثال: H9TQ17ADFTMC)
-SK Hynix (H26/H28/HN8): اقرأ الكود الكامل (مثال: H26M54002EMR)
-SanDisk (SDIN): اقرأ السطر الثاني (مثال: SDIN7DU2-16G)
-Toshiba (THG): اقرأ السطر الثالث (مثال: THGBMAG7A2JBAIR)
-Kingston: اقرأ الجزء الأيسر من السطر الرابع فقط
-Micron (JW/JZ): اقرأ الكود الكامل (مثال: JZ144)
-YMEC: اقرأ آخر سطر في الجهة اليسرى السفلى
-UNIC: اقرأ آخر سطر
-
-تنبيهات مهمة للحروف المتشابهة:
-- G مقابل 6: G له ذيل صغير، 6 دائري مغلق
-- B مقابل 8: B له نتوءان مسطحة، 8 حلقتان دائريتان
-- 0 مقابل O: 0 بيضاوي قليلاً، O دائري تام
-- I مقابل 1: انظر للسياق والطول
-- لو الصورة مقلوبة أو مائلة، صحح ذهنياً أولاً
-
-═══════════════════════════════════════
-الخطوة 3: ابحث في جدول العادي أولاً
-═══════════════════════════════════════
-${DB_TEXT}
-
-═══════════════════════════════════════
-الخطوة 4: لو ما لقيتش - استخدم الاختصارات
-═══════════════════════════════════════
-${SHORTCUTS_TEXT}
-${learnedSection}
-═══════════════════════════════════════
-الخطوة 5: أرجع النتيجة
-═══════════════════════════════════════
-أرجع JSON فقط بهذا الشكل بدون أي نص إضافي:
-{"code":"الكود_الكامل","storage":"المساحة_بالأرقام_فقط","type":"عادي أو زجاجي","company":"اسم_الشركة"}
-
-أمثلة على النتائج الصحيحة:
-{"code":"KMK7X000VM-B314","storage":"32","type":"عادي","company":"Samsung"}
-{"code":"KLMAG4FE4B-B002","storage":"16","type":"زجاجي","company":"Samsung"}
-{"code":"H9TQ17ADFTMC","storage":"16","type":"عادي","company":"SK Hynix"}
-{"code":"THGBMAG7A2JBAIR","storage":"16","type":"زجاجي","company":"Toshiba"}
-{"code":"H26M54002EMR","storage":"16","type":"زجاجي","company":"SK Hynix"}
-{"code":"JZ144","storage":"128","type":"زجاجي","company":"Micron"}
-
-لو ما قدرتش تقرأ الكود خالص: {"code":"","storage":"","type":"","company":""}`;
-
-        // استخدام streaming لتجنب timeout في Railway
-        const streamResult = await model.generateContentStream({
+        const readResult = await model.generateContent({
             contents: [{ parts: [
                 { inlineData: { data: imageBase64, mimeType: "image/jpeg" } },
-                { text: prompt }
+                { text: readPrompt }
             ]}],
-            generationConfig: {
-                temperature: 0,
-                topP: 1
-            }
+            generationConfig: { temperature: 0 }
         });
 
-        // جمع كل الـ chunks
-        let fullText = '';
-        for await (const chunk of streamResult.stream) {
-            const chunkText = chunk.text();
-            fullText += chunkText;
+        const rawCode = readResult.response.text().replace(/```/g, '').trim().split('\n')[0].trim();
+        console.log('Gemini read code:', rawCode);
+
+        // ─────────────────────────────────────────────────────────
+        // المرحلة 2: البحث في قواعد البيانات والاختصارات
+        // ─────────────────────────────────────────────────────────
+
+        // أولاً: تحقق من الأكواد المتعلمة من المستخدم (أولوية قصوى)
+        if (learnedCodes && learnedCodes.length > 0) {
+            for (const item of learnedCodes) {
+                if (rawCode.toUpperCase().includes(item.code.toUpperCase())) {
+                    console.log('Found in learned codes:', item.code);
+                    return res.json({
+                        code: rawCode,
+                        storage: item.storage,
+                        type: item.type === 'glass' ? 'زجاجي' : 'عادي',
+                        company: detectCompany(rawCode)
+                    });
+                }
+            }
         }
 
-        let text = fullText.replace(/```json/g, '').replace(/```/g, '').trim();
+        // ثانياً: بحث في قواعد البيانات والاختصارات
+        const dbResult = searchInDB(rawCode);
+        if (dbResult) {
+            console.log('Found in DB:', dbResult);
+            return res.json(dbResult);
+        }
+
+        // ─────────────────────────────────────────────────────────
+        // المرحلة 3: لم يُعثر عليه - Gemini يفكر ويحلل (نادر)
+        // ─────────────────────────────────────────────────────────
+        console.log('Not found in DB, asking Gemini to analyze...');
+
+        const analyzePrompt = `أنت خبير في تصنيف شرائح الذاكرة.
+
+الكود الذي قرأته من الصورة هو: "${rawCode}"
+
+هذا الكود غير موجود في قاعدة البيانات. حلله بنفسك:
+- إذا كان Samsung KLM/KLU: الحرفان في الموضع 5-6 → AG=16GB | BG=32GB | CG=64GB | DG=128GB | EG=256GB | FG=512GB → نوع: زجاجي
+- إذا كان Samsung KM: الحرف قبل 000/100/200/600 → N=8 | E=16 | X=32 | D=32 | C=64 | H=64 | G=128 | V=128 | F=256 → نوع: عادي
+- إذا كان SK Hynix H9TQ: الرقمان في الموضع 5-6 → 17/18=16GB | 26/27=32GB | 52/53=64GB | 16=128GB → نوع: عادي
+- إذا كان Toshiba THG: الحرفان في الموضع 7-8 → G7=16 | G8=32 | G9=64 | T0=128 | T1=256 → نوع: زجاجي
+- إذا كان SanDisk SDIN: المساحة مكتوبة صريحة في الكود → نوع: زجاجي
+- إذا كان Micron JW/JZ: راجع حجمه من الصورة → نوع: زجاجي
+
+أرجع JSON فقط:
+{"code":"${rawCode}","storage":"المساحة بالأرقام فقط","type":"عادي أو زجاجي","company":"اسم الشركة"}`;
+
+        const analyzeResult = await model.generateContent({
+            contents: [{ parts: [{ text: analyzePrompt }]}],
+            generationConfig: { temperature: 0 }
+        });
+
+        let analyzeText = analyzeResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
 
         let parsed;
         try {
-            // محاولة 1: parse مباشر
-            parsed = JSON.parse(text);
+            parsed = JSON.parse(analyzeText);
         } catch(e1) {
             try {
-                // محاولة 2: استخراج JSON بـ regex
-                const jsonMatch = text.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
-                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { code: '', storage: '', type: '', company: '' };
+                const jsonMatch = analyzeText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
+                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { code: rawCode, storage: '', type: '', company: '' };
             } catch(e2) {
-                parsed = { code: '', storage: '', type: '', company: '' };
+                parsed = { code: rawCode, storage: '', type: '', company: '' };
             }
         }
 
+        console.log('Gemini analysis result:', parsed);
         res.json(parsed);
+
     } catch (error) {
-        console.error("Gemini Error:", error);
+        console.error("Error:", error);
         res.status(500).json({ error: error.message });
     }
 });
