@@ -182,6 +182,9 @@ ${learnedSection}
                 temperature: 0,
                 topP: 1,
                 responseMimeType: "application/json"
+            },
+            thinkingConfig: {
+                thinkingBudget: 0
             }
         });
 
