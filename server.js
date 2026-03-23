@@ -173,24 +173,26 @@ ${learnedSection}
 
 لو ما قدرتش تقرأ الكود خالص: {"code":"","storage":"","type":"","company":""}`;
 
-        const result = await model.generateContent({
+        // استخدام streaming لتجنب timeout في Railway
+        const streamResult = await model.generateContentStream({
             contents: [{ parts: [
                 { inlineData: { data: imageBase64, mimeType: "image/jpeg" } },
                 { text: prompt }
             ]}],
             generationConfig: {
                 temperature: 0,
-                topP: 1,
-                responseMimeType: "application/json"
-            },
-            thinkingConfig: {
-                thinkingBudget: 0
+                topP: 1
             }
         });
 
-        const response = await result.response;
-        let text = response.text();
-        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        // جمع كل الـ chunks
+        let fullText = '';
+        for await (const chunk of streamResult.stream) {
+            const chunkText = chunk.text();
+            fullText += chunkText;
+        }
+
+        let text = fullText.replace(/```json/g, '').replace(/```/g, '').trim();
 
         let parsed;
         try {
