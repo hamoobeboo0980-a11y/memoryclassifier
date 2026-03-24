@@ -1481,38 +1481,21 @@ async function toggleFlash() {
   }
   var track = stream.getVideoTracks()[0];
   if (!track) return;
-  
-  // التحقق من دعم torch
-  var caps = null;
+
+  // محاولة تشغيل/إيقاف الفلاش
+  var newState = !flashActive;
   try {
-    caps = track.getCapabilities ? track.getCapabilities() : null;
-  } catch(x) {}
-  
-  var supportsTorch = caps && caps.torch === true;
-  
-  if (!supportsTorch) {
-    // محاولة مباشرة بدون فحص capabilities (بعض الأجهزة مش بتبلغ صح)
-    try {
-      await track.applyConstraints({ advanced: [{ torch: true }] });
-      supportsTorch = true;
-    } catch(e) {
-      addChatMsg('المساعد', '⚠️ الفلاش مش متاح على الكاميرا دي', 'bot');
-      flashActive = false;
-      return;
-    }
-  }
-  
-  try {
-    flashActive = !flashActive;
-    await track.applyConstraints({ advanced: [{ torch: flashActive }] });
+    await track.applyConstraints({ advanced: [{ torch: newState }] });
+    flashActive = newState;
     document.getElementById('btnFlash').style.background = flashActive ? 'rgba(255,200,0,0.3)' : '';
     document.getElementById('btnFlash').textContent = flashActive ? '💡 فلاش' : '🔦 كشاف';
   } catch(e) {
-    console.error('Flash error:', e);
-    addChatMsg('المساعد', '⚠️ الفلاش فشل: ' + e.message, 'bot');
+    console.log('Torch فشل:', e.message);
+    // الفلاش مش متاح - اطلب إضاءة يدوية
     flashActive = false;
-    document.getElementById('btnFlash').style.background = '';
-    document.getElementById('btnFlash').textContent = '🔦 كشاف';
+    document.getElementById('btnFlash').style.background = 'rgba(255,200,0,0.3)';
+    document.getElementById('btnFlash').textContent = '💡 ورّيني ضوء';
+    addChatMsg('المساعد', '💡 الفلاش التلقائي مش متاح على الكاميرا دي.\nورّيني ضوء على الشريحة عشان الصورة تبقى واضحة 🔦', 'bot');
   }
 }
 
