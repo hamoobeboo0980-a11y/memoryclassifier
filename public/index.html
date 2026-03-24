@@ -1476,19 +1476,43 @@ function stopCamera() {
 
 async function toggleFlash() {
   if (!stream) {
-    alert('شغّل الكاميرا الأول 📷');
+    addChatMsg('المساعد', 'شغّل الكاميرا الأول 📷', 'bot');
     return;
   }
-  const track = stream.getVideoTracks()[0];
+  var track = stream.getVideoTracks()[0];
   if (!track) return;
+  
+  // التحقق من دعم torch
+  var caps = null;
+  try {
+    caps = track.getCapabilities ? track.getCapabilities() : null;
+  } catch(x) {}
+  
+  var supportsTorch = caps && caps.torch === true;
+  
+  if (!supportsTorch) {
+    // محاولة مباشرة بدون فحص capabilities (بعض الأجهزة مش بتبلغ صح)
+    try {
+      await track.applyConstraints({ advanced: [{ torch: true }] });
+      supportsTorch = true;
+    } catch(e) {
+      addChatMsg('المساعد', '⚠️ الفلاش مش متاح على الكاميرا دي', 'bot');
+      flashActive = false;
+      return;
+    }
+  }
+  
   try {
     flashActive = !flashActive;
     await track.applyConstraints({ advanced: [{ torch: flashActive }] });
     document.getElementById('btnFlash').style.background = flashActive ? 'rgba(255,200,0,0.3)' : '';
-    document.getElementById('btnFlash').textContent = flashActive ? '💡' : '🔦';
+    document.getElementById('btnFlash').textContent = flashActive ? '💡 فلاش' : '🔦 كشاف';
   } catch(e) {
-    alert('الفلاش مش متاح على جهازك');
+    console.error('Flash error:', e);
+    addChatMsg('المساعد', '⚠️ الفلاش فشل: ' + e.message, 'bot');
     flashActive = false;
+    document.getElementById('btnFlash').style.background = '';
+    document.getElementById('btnFlash').textContent = '🔦 كشاف';
   }
 }
 
