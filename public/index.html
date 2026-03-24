@@ -1453,16 +1453,17 @@ async function toggleCamera() {
   if (cameraActive) {
     stopAutoAnalysis();
     stopCamera();
-    document.getElementById('btnCamToggle').textContent = '📷 تشغيل الكاميرا';
+    document.getElementById('btnCamToggle').textContent = '📷 تشغيل';
     document.getElementById('btnCamToggle').style.background = '';
     cameraActive = false;
   } else {
-    await startCamera();
-    document.getElementById('btnCamToggle').textContent = '⏹ إيقاف الكاميرا';
-    document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
-    cameraActive = true;
-    // تشغيل التصوير التلقائي
-    setTimeout(startAutoAnalysis, 1500);
+    var ok = await startCamera();
+    if (ok) {
+      document.getElementById('btnCamToggle').textContent = '⏹ إيقاف';
+      document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
+      cameraActive = true;
+      setTimeout(startAutoAnalysis, 1500);
+    }
   }
 }
 
@@ -1703,71 +1704,71 @@ async function processChat(userMsg) {
 // ═══════════════════════════════════════
 
 async function startCamera() {
-  try {
-    // محاولة أولى: كاميرا خلفية بجودة عالية
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-        audio: false 
-      });
-    } catch(e1) {
-      console.log('⚠️ Fallback: كاميرا بدون تحديد جودة');
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' },
-          audio: false 
-        });
-      } catch(e2) {
-        console.log('⚠️ Fallback 2: أي كاميرا متاحة');
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: true,
-          audio: false 
-        });
-      }
-    }
-    var video = document.getElementById('video');
-    if (video) {
-      video.srcObject = stream;
-      video.play();
-    }
-    // ماكرو تلقائي: أقرب focus ممكن للتقريب على IC
-    var track = stream.getVideoTracks()[0];
-    if (track) {
-      var caps = track.getCapabilities ? track.getCapabilities() : {};
-      var advancedConstraints = [];
-      // لو الجهاز يدعم focusMode macro
-      if (caps.focusMode && caps.focusMode.includes('macro')) {
-        advancedConstraints.push({ focusMode: 'macro' });
-      } else if (caps.focusMode && caps.focusMode.includes('continuous')) {
-        advancedConstraints.push({ focusMode: 'continuous' });
-      }
-      // لو الجهاز يدعم focusDistance (أقرب مسافة)
-      if (caps.focusDistance && caps.focusDistance.min !== undefined) {
-        advancedConstraints.push({ focusDistance: caps.focusDistance.min });
-      }
-      // لو الجهاز يدعم zoom (تكبير خفيف)
-      if (caps.zoom && caps.zoom.max > 1) {
-        var macroZoom = Math.min(caps.zoom.max, 2.0);
-        advancedConstraints.push({ zoom: macroZoom });
-      }
-      if (advancedConstraints.length > 0) {
-        try {
-          await track.applyConstraints({ advanced: advancedConstraints });
-          console.log('✅ ماكرو تلقائي مفعّل');
-        } catch(e) {
-          console.log('⚠️ الماكرو مش متاح: ' + e.message);
-        }
-      }
-    }
-  } catch(err) {
-    console.error('Camera error:', err);
-    // رسالة مفيدة بدل alert
-    addChatMsg('المساعد', '⚠️ الكاميرا مش شغالة: ' + err.message + '\n\nجرب:\n1. قفل أي تطبيق تاني بيستخدم الكاميرا\n2. اسمح للموقع بالكاميرا من الإعدادات\n3. استخدم زر "🖼 صورة" لرفع صورة مباشرة', 'bot');
-    // رجّع الزر لحالته الأصلية
-    cameraActive = false;
-    document.getElementById('btnCamToggle').textContent = '📷 تشغيل الكاميرا';
-    document.getElementById('btnCamToggle').style.background = '';
+  // أوقف أي stream قديم الأول
+  if (stream) {
+    try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(x){}
+    stream = null;
   }
+
+  var attempts = [
+    { video: { facingMode: {exact: 'environment'}, width: {ideal:1280}, height: {ideal:720} }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: { facingMode: {ideal: 'environment'} }, audio: false },
+    { video: true, audio: false }
+  ];
+
+  for (var i = 0; i < attempts.length; i++) {
+    try {
+      console.log('📷 محاولة كاميرا #' + (i+1));
+      stream = await navigator.mediaDevices.getUserMedia(attempts[i]);
+      break; // نجحت!
+    } catch(e) {
+      console.log('⚠️ محاولة #' + (i+1) + ' فشلت: ' + e.message);
+      stream = null;
+    }
+  }
+
+  if (!stream) {
+    addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. استخدم زر "🖼 صورة" لرفع صورة مباشرة.', 'bot');
+    cameraActive = false;
+    document.getElementById('btnCamToggle').textContent = '📷 تشغيل';
+    document.getElementById('btnCamToggle').style.background = '';
+    return false;
+  }
+
+  var video = document.getElementById('video');
+  if (video) {
+    video.srcObject = stream;
+    video.setAttribute('autoplay', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.muted = true;
+    // انتظر لحد ما الفيديو يبقى جاهز
+    await new Promise(function(resolve) {
+      video.onloadedmetadata = function() {
+        video.play().then(resolve).catch(function(e) {
+          console.log('⚠️ play() error:', e.message);
+          resolve();
+        });
+      };
+      // timeout لو ماجاش metadata
+      setTimeout(resolve, 3000);
+    });
+  }
+
+  // ماكرو تلقائي
+  try {
+    var track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      var caps = track.getCapabilities();
+      var adv = [];
+      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) adv.push({focusMode:'continuous'});
+      if (caps.zoom && caps.zoom.max > 1) adv.push({zoom: Math.min(caps.zoom.max, 2.0)});
+      if (adv.length > 0) await track.applyConstraints({advanced: adv});
+    }
+  } catch(e) { console.log('ماكرو:', e.message); }
+
+  return true;
 }
 
 function captureManual() {
