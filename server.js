@@ -182,11 +182,11 @@ app.post('/api/analyze', async (req, res) => {
         // المرحلة 2: البحث في قواعد البيانات والاختصارات
         // ─────────────────────────────────────────────────────────
 
-        // أولاً: تحقق من الأكواد المتعلمة من المستخدم (أولوية قصوى)
+        // أولاً: تحقق من التصحيحات المتعلمة (corrected=true تأخذ أولوية قصوى)
         if (learnedCodes && learnedCodes.length > 0) {
             for (const item of learnedCodes) {
-                if (rawCode.toUpperCase().includes(item.code.toUpperCase())) {
-                    console.log('Found in learned codes:', item.code);
+                if (item.corrected && rawCode.toUpperCase().includes(item.code.toUpperCase())) {
+                    console.log('Found CORRECTED learned code (priority):', item.code);
                     return res.json({
                         code: rawCode,
                         storage: item.storage,
@@ -202,6 +202,21 @@ app.post('/api/analyze', async (req, res) => {
         if (dbResult) {
             console.log('Found in DB:', dbResult);
             return res.json(dbResult);
+        }
+
+        // ثالثاً: بحث في الأكواد المتعلمة غير المصححة
+        if (learnedCodes && learnedCodes.length > 0) {
+            for (const item of learnedCodes) {
+                if (!item.corrected && rawCode.toUpperCase().includes(item.code.toUpperCase())) {
+                    console.log('Found in learned codes (non-corrected):', item.code);
+                    return res.json({
+                        code: rawCode,
+                        storage: item.storage,
+                        type: item.type === 'glass' ? 'زجاجي' : 'عادي',
+                        company: detectCompany(rawCode)
+                    });
+                }
+            }
         }
 
         // ─────────────────────────────────────────────────────────
@@ -249,6 +264,45 @@ app.post('/api/analyze', async (req, res) => {
     } catch (error) {
         console.error("Error:", error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Chat API - شات ذكي مع Gemini
+// ═══════════════════════════════════════════════════════════════
+
+app.post('/api/chat', async (req, res) => {
+    try {
+        const { message, context } = req.body;
+        if (!message) return res.status(400).json({ error: "No message" });
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        const chatPrompt = `أنت مساعد ذكي متخصص في شرائح الذاكرة (Memory IC chips) للهواتف.
+اسمك "مساعد البحراوي" وبتتكلم مصري.
+
+معلومات عنك:
+- بتساعد في تصنيف شرائح الذاكرة (عادي/زجاجي EMMC)
+- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC
+- العادي = BGA (بيتلحم على البورد)
+- الزجاجي = EMMC (بيتركب في سوكيت)
+
+${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || 'مفيش') + '\n- آخر نتيجة: ' + (context.storage || '?') + 'GB ' + (context.type || '?') + '\n- الشركة: ' + (context.company || '?') : ''}
+
+رسالة المستخدم: "${message}"
+
+رد بإيجاز ووضوح بالمصري. لو سأل عن حاجة مش ليها علاقة بالذاكرة، رد عليه بلطف وارجعه للموضوع.`;
+
+        const result = await model.generateContent({
+            contents: [{ parts: [{ text: chatPrompt }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+        });
+
+        const reply = result.response.text().trim();
+        res.json({ reply });
+    } catch (error) {
+        console.error("Chat error:", error);
+        res.json({ reply: '⚠️ مش قادر أرد دلوقتي - جرب تاني' });
     }
 });
 
