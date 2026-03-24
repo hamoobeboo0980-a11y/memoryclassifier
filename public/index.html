@@ -1662,13 +1662,9 @@ async function processChat(userMsg) {
   addChatMsg('المساعد', '❓ الكود: ' + (currentCode || '?') + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
 }
 
-
-
-</script>
-</body>
-</html>
-// ===== MISSING FUNCTIONS =====
-let stream = null;
+// ═══════════════════════════════════════
+// الدوال الأساسية: الكاميرا + الصور
+// ═══════════════════════════════════════
 
 async function startCamera() {
   try {
@@ -1676,12 +1672,11 @@ async function startCamera() {
       video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false 
     });
-    const video = document.getElementById('video');
+    var video = document.getElementById('video');
     if (video) {
       video.srcObject = stream;
       video.play();
     }
-    startAutoCapture();
   } catch(err) {
     alert('لا يمكن الوصول للكاميرا: ' + err.message);
   }
@@ -1689,73 +1684,41 @@ async function startCamera() {
 
 function captureManual() {
   if (!stream) {
-    alert('الكاميرا غير مشغلة');
+    alert('شغّل الكاميرا الأول');
     return;
   }
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('canvas');
   if (!canvas || !video) return;
   
-  const ctx = canvas.getContext('2d');
+  var ctx = canvas.getContext('2d');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0);
   
-  const imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
-  analyzeImage(imageData);
+  var imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+  var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+  analyzeImage(imageData, previewUrl);
 }
 
 function uploadImage(event) {
-  const file = event.target.files[0];
+  var file = event.target.files[0];
   if (!file) return;
   
-  const reader = new FileReader();
+  var reader = new FileReader();
   reader.onload = function(e) {
-    const imageData = e.target.result.split(',')[1];
-    analyzeImage(imageData);
+    var base64Full = e.target.result;
+    var imageData = base64Full.split(',')[1];
+    analyzeImage(imageData, base64Full);
   };
   reader.readAsDataURL(file);
 }
 
-async function analyzeImage(base64Image) {
-  showLoading(true);
-  showError('');
-  showResult(false);
-  
-  try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: base64Image, learnedCodes: cloudLearned })
-    });
-    
-    if (!response.ok) throw new Error('API Error: ' + response.status);
-    const result = await response.json();
-    
-    showLoading(false);
-    
-    if (result.error) {
-      showError('❌ ' + result.error);
-      return;
-    }
-    
-    lastBase64 = base64Image;
-    lastParsed = result;
-    currentCode = result.code;
-    
-    displayResult(result.code, result, base64Image);
-    updateStats(result.company, true);
-    
-    addChatMsg('المساعد', '✅ ' + result.code + ' → ' + result.storage + ' GB ' + result.type, 'bot');
-  } catch(err) {
-    showLoading(false);
-    showError('❌ خطأ: ' + err.message);
-  }
-}
-
-function startAutoCapture() {
-  // Auto-capture logic here if needed
+// دالة فاضية لمنع أخطاء الـ auto-capture
+function analyzeFrame() {
+  // placeholder
 }
 
 </script>
 </body>
+</html>
