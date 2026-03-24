@@ -809,7 +809,7 @@
       </button>
       <label class="btn-upload" style="flex:1;font-size:13px;padding:10px 4px;cursor:pointer;text-align:center" data-manus_clickable="true" data-manus_click_id="4">
         🖼 صورة
-        <input type="file" accept="image/*" style="display: none;" onchange="uploadImage(event)">
+        <input type="file" accept="image/*" capture="environment" style="display: none;" onchange="uploadImage(event)">
       </label>
     </div>
   </div>
@@ -1760,7 +1760,13 @@ async function startCamera() {
       }
     }
   } catch(err) {
-    alert('لا يمكن الوصول للكاميرا: ' + err.message);
+    console.error('Camera error:', err);
+    // رسالة مفيدة بدل alert
+    addChatMsg('المساعد', '⚠️ الكاميرا مش شغالة: ' + err.message + '\n\nجرب:\n1. قفل أي تطبيق تاني بيستخدم الكاميرا\n2. اسمح للموقع بالكاميرا من الإعدادات\n3. استخدم زر "🖼 صورة" لرفع صورة مباشرة', 'bot');
+    // رجّع الزر لحالته الأصلية
+    cameraActive = false;
+    document.getElementById('btnCamToggle').textContent = '📷 تشغيل الكاميرا';
+    document.getElementById('btnCamToggle').style.background = '';
   }
 }
 
