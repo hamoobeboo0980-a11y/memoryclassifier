@@ -1667,3 +1667,95 @@ async function processChat(userMsg) {
 </script>
 </body>
 </html>
+// ===== MISSING FUNCTIONS =====
+let stream = null;
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false 
+    });
+    const video = document.getElementById('video');
+    if (video) {
+      video.srcObject = stream;
+      video.play();
+    }
+    startAutoCapture();
+  } catch(err) {
+    alert('لا يمكن الوصول للكاميرا: ' + err.message);
+  }
+}
+
+function captureManual() {
+  if (!stream) {
+    alert('الكاميرا غير مشغلة');
+    return;
+  }
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  if (!canvas || !video) return;
+  
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  
+  const imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+  analyzeImage(imageData);
+}
+
+function uploadImage(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const imageData = e.target.result.split(',')[1];
+    analyzeImage(imageData);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function analyzeImage(base64Image) {
+  showLoading(true);
+  showError('');
+  showResult(false);
+  
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64Image, learnedCodes: cloudLearned })
+    });
+    
+    if (!response.ok) throw new Error('API Error: ' + response.status);
+    const result = await response.json();
+    
+    showLoading(false);
+    
+    if (result.error) {
+      showError('❌ ' + result.error);
+      return;
+    }
+    
+    lastBase64 = base64Image;
+    lastParsed = result;
+    currentCode = result.code;
+    
+    displayResult(result.code, result, base64Image);
+    updateStats(result.company, true);
+    
+    addChatMsg('المساعد', '✅ ' + result.code + ' → ' + result.storage + ' GB ' + result.type, 'bot');
+  } catch(err) {
+    showLoading(false);
+    showError('❌ خطأ: ' + err.message);
+  }
+}
+
+function startAutoCapture() {
+  // Auto-capture logic here if needed
+}
+
+</script>
+</body>
