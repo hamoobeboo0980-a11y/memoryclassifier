@@ -1473,7 +1473,10 @@ function stopCamera() {
 }
 
 async function toggleFlash() {
-  if (!stream) return;
+  if (!stream) {
+    alert('شغّل الكاميرا الأول 📷');
+    return;
+  }
   const track = stream.getVideoTracks()[0];
   if (!track) return;
   try {
@@ -1669,13 +1672,42 @@ async function processChat(userMsg) {
 async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false 
     });
     var video = document.getElementById('video');
     if (video) {
       video.srcObject = stream;
       video.play();
+    }
+    // ماكرو تلقائي: أقرب focus ممكن للتقريب على IC
+    var track = stream.getVideoTracks()[0];
+    if (track) {
+      var caps = track.getCapabilities ? track.getCapabilities() : {};
+      var advancedConstraints = [];
+      // لو الجهاز يدعم focusMode macro
+      if (caps.focusMode && caps.focusMode.includes('macro')) {
+        advancedConstraints.push({ focusMode: 'macro' });
+      } else if (caps.focusMode && caps.focusMode.includes('continuous')) {
+        advancedConstraints.push({ focusMode: 'continuous' });
+      }
+      // لو الجهاز يدعم focusDistance (أقرب مسافة)
+      if (caps.focusDistance && caps.focusDistance.min !== undefined) {
+        advancedConstraints.push({ focusDistance: caps.focusDistance.min });
+      }
+      // لو الجهاز يدعم zoom (تكبير خفيف)
+      if (caps.zoom && caps.zoom.max > 1) {
+        var macroZoom = Math.min(caps.zoom.max, 2.0);
+        advancedConstraints.push({ zoom: macroZoom });
+      }
+      if (advancedConstraints.length > 0) {
+        try {
+          await track.applyConstraints({ advanced: advancedConstraints });
+          console.log('✅ ماكرو تلقائي مفعّل');
+        } catch(e) {
+          console.log('⚠️ الماكرو مش متاح: ' + e.message);
+        }
+      }
     }
   } catch(err) {
     alert('لا يمكن الوصول للكاميرا: ' + err.message);
