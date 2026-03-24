@@ -1369,7 +1369,8 @@ function nextPhoto() {
   autoCapture.progress = 0;
   autoCapture.prevFrame = null;
   isAnalyzing = false;
-  if (stream) requestAnimationFrame(analyzeFrame);
+  // إعادة تشغيل التصوير التلقائي
+  if (stream) setTimeout(startAutoAnalysis, 500);
 }
 
 // API Key is on the server - no client key needed
@@ -1453,6 +1454,7 @@ let macroActive = false;
 
 async function toggleCamera() {
   if (cameraActive) {
+    stopAutoAnalysis();
     stopCamera();
     document.getElementById('btnCamToggle').textContent = '📷 تشغيل الكاميرا';
     document.getElementById('btnCamToggle').style.background = '';
@@ -1462,6 +1464,8 @@ async function toggleCamera() {
     document.getElementById('btnCamToggle').textContent = '⏹ إيقاف الكاميرا';
     document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
     cameraActive = true;
+    // تشغيل التصوير التلقائي
+    setTimeout(startAutoAnalysis, 1500);
   }
 }
 
@@ -1746,9 +1750,172 @@ function uploadImage(event) {
   reader.readAsDataURL(file);
 }
 
-// دالة فاضية لمنع أخطاء الـ auto-capture
+// ═══════════════════════════════════════
+// التصوير التلقائي الذكي
+// ═══════════════════════════════════════
+var autoInterval = null;
+var stableCount = 0;
+var STABLE_THRESHOLD = 3; // عدد الفريمات المستقرة قبل التصوير
+
+function startAutoAnalysis() {
+  if (autoInterval) clearInterval(autoInterval);
+  stableCount = 0;
+  autoCapture.progress = 0;
+  autoCapture.prevFrame = null;
+  updateRing(0);
+  updateAutoMsg('وجّه الكاميرا على شريحة الذاكرة');
+  autoInterval = setInterval(analyzeFrame, 1000);
+}
+
+function stopAutoAnalysis() {
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
+  stableCount = 0;
+  autoCapture.progress = 0;
+  updateRing(0);
+  document.getElementById('captureRing').classList.remove('visible');
+}
+
 function analyzeFrame() {
-  // placeholder
+  if (!stream || isAnalyzing) return;
+  
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('canvas');
+  if (!video || !canvas || video.videoWidth === 0) return;
+  
+  var ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  
+  // تحليل الصورة محلياً
+  var w = canvas.width;
+  var h = canvas.height;
+  // ناخد منطقة المنتصف فقط (حيث الـ IC غالباً)
+  var cx = Math.floor(w * 0.25);
+  var cy = Math.floor(h * 0.25);
+  var cw = Math.floor(w * 0.5);
+  var ch = Math.floor(h * 0.5);
+  var imgData = ctx.getImageData(cx, cy, cw, ch);
+  var pixels = imgData.data;
+  
+  // 1. قياس الإضاءة (brightness)
+  var totalBright = 0;
+  var pixelCount = pixels.length / 4;
+  for (var i = 0; i < pixels.length; i += 16) { // كل 4 بكسل للسرعة
+    totalBright += (pixels[i] * 0.299 + pixels[i+1] * 0.587 + pixels[i+2] * 0.114);
+  }
+  var avgBright = totalBright / (pixels.length / 16);
+  
+  // 2. قياس الحدة (sharpness) - Laplacian variance
+  var sharpness = 0;
+  var grayData = [];
+  for (var i = 0; i < pixels.length; i += 4) {
+    grayData.push(pixels[i] * 0.299 + pixels[i+1] * 0.587 + pixels[i+2] * 0.114);
+  }
+  var lapSum = 0;
+  var lapCount = 0;
+  for (var y = 1; y < ch - 1; y += 3) {
+    for (var x = 1; x < cw - 1; x += 3) {
+      var idx = y * cw + x;
+      var lap = -4 * grayData[idx] + grayData[idx-1] + grayData[idx+1] + grayData[idx-cw] + grayData[idx+cw];
+      lapSum += lap * lap;
+      lapCount++;
+    }
+  }
+  sharpness = lapCount > 0 ? Math.sqrt(lapSum / lapCount) : 0;
+  
+  // 3. قياس الاستقرار (stability) - مقارنة بالفريم السابق
+  var stability = 0;
+  if (autoCapture.prevFrame && autoCapture.prevFrame.length === grayData.length) {
+    var diffSum = 0;
+    for (var i = 0; i < grayData.length; i += 8) {
+      diffSum += Math.abs(grayData[i] - autoCapture.prevFrame[i]);
+    }
+    var avgDiff = diffSum / (grayData.length / 8);
+    stability = Math.max(0, 100 - avgDiff * 2);
+  }
+  autoCapture.prevFrame = grayData;
+  
+  // تحديث المؤشرات
+  var qSharp = document.getElementById('qSharp');
+  var qStable = document.getElementById('qStable');
+  var qLight = document.getElementById('qLight');
+  var autoMsg = document.getElementById('autoMsg');
+  
+  // الإضاءة
+  var lightOk = avgBright > 50 && avgBright < 230;
+  var lightWarn = avgBright > 30 && avgBright < 245;
+  qLight.className = 'q-dot ' + (lightOk ? 'good' : (lightWarn ? 'warn' : 'bad'));
+  
+  // الحدة (sharpness > 15 = واضح، > 8 = متوسط)
+  var sharpOk = sharpness > 15;
+  var sharpWarn = sharpness > 8;
+  qSharp.className = 'q-dot ' + (sharpOk ? 'good' : (sharpWarn ? 'warn' : 'bad'));
+  
+  // الاستقرار (stability > 85 = ثابت)
+  var stableOk = stability > 85;
+  var stableWarn = stability > 60;
+  qStable.className = 'q-dot ' + (stableOk ? 'good' : (stableWarn ? 'warn' : 'bad'));
+  
+  // ═══ فلاش تلقائي لو الإضاءة ضعيفة ═══
+  if (avgBright < 40 && !flashActive) {
+    toggleFlash(); // شغّل الفلاش تلقائي
+    updateAutoMsg('تم تشغيل الفلاش تلقائياً');
+    return;
+  }
+  
+  // ═══ رسائل التوجيه ═══
+  if (!lightOk && !lightWarn) {
+    updateAutoMsg('الإضاءة ضعيفة جداً');
+    stableCount = 0;
+  } else if (!sharpWarn) {
+    updateAutoMsg('قرّب أكتر على الشريحة');
+    stableCount = 0;
+  } else if (!stableOk) {
+    updateAutoMsg('ثبّت إيدك شوية');
+    stableCount = 0;
+  } else if (sharpOk && stableOk && lightOk) {
+    stableCount++;
+    var progress = Math.min(100, Math.round((stableCount / STABLE_THRESHOLD) * 100));
+    autoCapture.progress = progress;
+    updateRing(progress);
+    document.getElementById('captureRing').classList.add('visible');
+    
+    if (progress < 100) {
+      updateAutoMsg('ممتاز! ثبّت... ' + progress + '%');
+    }
+    
+    // ═══ التصوير التلقائي ═══
+    if (stableCount >= STABLE_THRESHOLD) {
+      stopAutoAnalysis();
+      updateAutoMsg('جاري التصنيف...');
+      
+      // التقاط الصورة
+      var imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+      var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+      analyzeImage(imageData, previewUrl);
+    }
+  } else {
+    stableCount = Math.max(0, stableCount - 1);
+    updateRing(Math.round((stableCount / STABLE_THRESHOLD) * 100));
+  }
+}
+
+function updateRing(percent) {
+  var circle = document.getElementById('ringCircle');
+  var text = document.getElementById('ringText');
+  if (circle) {
+    var offset = 126 - (126 * percent / 100);
+    circle.style.strokeDashoffset = offset;
+  }
+  if (text) text.textContent = percent + '%';
+  var ring = document.getElementById('captureRing');
+  if (ring) ring.classList.toggle('visible', percent > 0);
+}
+
+function updateAutoMsg(msg) {
+  var el = document.getElementById('autoMsg');
+  if (el) el.textContent = msg;
 }
 
 </script>
