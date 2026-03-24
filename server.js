@@ -122,6 +122,13 @@ function searchInDB(code) {
         }
     }
 
+    // 11) بحث عام بالحرف + الرقم (لأي كود فيه حرف قبل رقم معروف)
+    const generalMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
+    const generalMatch = upperCode.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
+    if (generalMatch && generalMap[generalMatch[1].toUpperCase()]) {
+        return { code: upperCode, storage: generalMap[generalMatch[1].toUpperCase()], type: 'عادي', company: detectCompany(upperCode) };
+    }
+
     return null; // لم يُعثر على الكود
 }
 

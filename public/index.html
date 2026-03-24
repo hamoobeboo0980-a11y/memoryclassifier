@@ -1026,7 +1026,14 @@ function searchInDB(code) {
     if (ymecMap[ymecNum]) return { storage: ymecMap[ymecNum], type: 'زجاجي', fromShortcut: true };
   }
   
-  // 5. Unknown - save for later
+  // 5. بحث عام بالحرف + الرقم (لأي كود فيه حرف قبل رقم معروف)
+  var generalMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
+  var generalMatch = codeUpper.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
+  if (generalMatch && generalMap[generalMatch[1].toUpperCase()]) {
+    return { storage: generalMap[generalMatch[1].toUpperCase()], type: 'عادي', fromShortcut: true };
+  }
+
+  // 6. Unknown - save for later
   if (code && code.length > 3) {
     if (!unknownCodes.find(u => u.code === code)) {
       unknownCodes.push({ code, date: new Date().toLocaleDateString('ar') });
@@ -1491,6 +1498,11 @@ async function toggleFlash() {
 
 function isValidCode(code) {
   if (!code || code.length < 4) return false;
+  // لازم يكون إنجليزي + أرقام + رموز فقط (مش عربي)
+  if (/[\u0600-\u06FF]/.test(code)) return false;
+  // لازم يحتوي على حرف إنجليزي واحد على الأقل ورقم واحد
+  if (!/[A-Za-z]/.test(code)) return false;
+  if (!/[0-9]/.test(code)) return false;
   return true;
 }
 
@@ -1553,7 +1565,9 @@ async function processChat(userMsg) {
   // الشات بيشتغل حتى بدون صورة - Gemini بيرد
 
   // ===== لو المستخدم بيقول له كود - ابحث فيه في البيانات أول =====
-  var mentionedCode = userMsg.trim().split(/\s+/).find(function(w) {
+  var mentionedCode = userMsg.trim().split(/\s+/).map(function(w) {
+    return w.replace(/[.,;:!?]+$/g, '').trim(); // تنظيف الرموز
+  }).find(function(w) {
     return w.length >= 4 && isValidCode(w);
   });
 
@@ -1581,22 +1595,25 @@ async function processChat(userMsg) {
   var isGlassCorrection = lower.includes('زجاجي') || lower.includes('glass');
   var isNormalCorrection = lower.includes('عادي') || lower.includes('normal');
 
-  if (lastParsed && lastParsed.code && !mentionedCode) {
+  // لو فيه كود حالي (من lastParsed أو currentCode)
+  var activeCode = (lastParsed && lastParsed.code) || currentCode;
+  if (activeCode) activeCode = activeCode.replace(/[.,\s]+$/g, '').trim();
+
+  if (activeCode && !mentionedCode) {
     // لو المستخدم بيصحح النوع - اسمعه وحفظ
     if (isGlassCorrection || isNormalCorrection) {
-      var existingResult2 = searchInDB(lastParsed.code);
+      var existingResult2 = searchInDB(activeCode);
       // دور على المساحة من كل المصادر
       var sizeMatch2 = userMsg.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
       var storage2 = '';
-      if (sizeMatch2) storage2 = sizeMatch2[1]; // من رسالة المستخدم
+      if (sizeMatch2) storage2 = sizeMatch2[1];
       else if (existingResult2) storage2 = existingResult2.storage || existingResult2.capacity || '';
-      else if (lastParsed.storage) storage2 = lastParsed.storage;
+      else if (lastParsed && lastParsed.storage) storage2 = lastParsed.storage;
       else if (currentDisplayStorage) storage2 = currentDisplayStorage;
       
       var newType = isGlassCorrection ? 'زجاجي' : 'عادي';
-      // احفظ التصحيح
-      var existIdx3 = cloudLearned.findIndex(function(x){ return x.code && x.code.toUpperCase() === lastParsed.code.toUpperCase(); });
-      var newEntry3 = { code: lastParsed.code, company: lastParsed.company || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true };
+      var existIdx3 = cloudLearned.findIndex(function(x){ return x.code && x.code.toUpperCase() === activeCode.toUpperCase(); });
+      var newEntry3 = { code: activeCode, company: (lastParsed && lastParsed.company) || '', type: isGlassCorrection ? 'glass' : 'normal', storage: storage2, corrected: true };
       if (existIdx3 >= 0) {
         cloudLearned[existIdx3] = newEntry3;
       } else {
@@ -1604,16 +1621,17 @@ async function processChat(userMsg) {
       }
       localStorage.setItem('ic_learned', JSON.stringify(cloudLearned));
       jbinSave(cloudLearned);
-      displayResult(lastParsed.code, {storage: storage2 || '?', type: newType}, lastParsed.company || '');
-      currentCode = lastParsed.code;
-      addChatMsg('المساعد', '✅ تم التصحيح! ' + lastParsed.code + ' → ' + (storage2 || '?') + ' GB ' + newType + ' 🧠', 'bot');
+      displayResult(activeCode, {storage: storage2 || '?', type: newType}, (lastParsed && lastParsed.company) || '');
+      currentCode = activeCode;
+      addChatMsg('المساعد', '✅ تم التصحيح! ' + activeCode + ' → ' + (storage2 || '?') + ' GB ' + newType + ' 🧠', 'bot');
       return;
     }
-    var existingResult = searchInDB(lastParsed.code);
+    // لو المستخدم بيقول مساحة بس بدون نوع - ادور في البيانات
+    var existingResult = searchInDB(activeCode);
     if (existingResult) {
-      displayResult(lastParsed.code, existingResult, lastParsed.company || '');
-      currentCode = lastParsed.code;
-      addChatMsg('المساعد', '✅ ' + lastParsed.code + ' → ' + (existingResult.storage || existingResult.capacity) + ' GB ' + existingResult.type, 'bot');
+      displayResult(activeCode, existingResult, (lastParsed && lastParsed.company) || '');
+      currentCode = activeCode;
+      addChatMsg('المساعد', '✅ ' + activeCode + ' → ' + (existingResult.storage || existingResult.capacity) + ' GB ' + existingResult.type, 'bot');
       return;
     }
   }
@@ -1632,6 +1650,8 @@ async function processChat(userMsg) {
   var isGlass = lower.includes('زجاجي') || lower.includes('glass');
   var isNormal = lower.includes('عادي') || lower.includes('normal');
   var codeToSave = mentionedCode || (lastParsed && lastParsed.code) || currentCode;
+  // تنظيف الكود من الرموز الزيادة (نقطة، فاصلة، مسافة)
+  if (codeToSave) codeToSave = codeToSave.replace(/[.,\s]+$/g, '').trim();
 
   if (codeToSave && sizeMatch && (isGlass || isNormal)) {
     // المستخدم بيعلمه - احفظ على cloudLearned مباشرة بدون ما تمسح حاجة
@@ -1684,10 +1704,27 @@ async function processChat(userMsg) {
 
 async function startCamera() {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
-      audio: false 
-    });
+    // محاولة أولى: كاميرا خلفية بجودة عالية
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false 
+      });
+    } catch(e1) {
+      console.log('⚠️ Fallback: كاميرا بدون تحديد جودة');
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' },
+          audio: false 
+        });
+      } catch(e2) {
+        console.log('⚠️ Fallback 2: أي كاميرا متاحة');
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true,
+          audio: false 
+        });
+      }
+    }
     var video = document.getElementById('video');
     if (video) {
       video.srcObject = stream;
