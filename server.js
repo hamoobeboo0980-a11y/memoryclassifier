@@ -83,7 +83,7 @@ function searchInDB(code) {
         const numStr = upperCode.substring(4, 6);
         const hynixMap = { '17': '16', '18': '16', '19': '16', '26': '32', '27': '32', '52': '64', '53': '64', '16': '128', '21': '256', '22': '256' };
         if (hynixMap[numStr]) {
-            return { code: upperCode, storage: hynixMap[numStr], type: upperCode.startsWith('H9HP') || upperCode.startsWith('H9HQ') ? 'زجاجي' : 'عادي', company: 'SK Hynix' };
+            return { code: upperCode, storage: hynixMap[numStr], type: 'عادي', company: 'SK Hynix' };
         }
     }
 
