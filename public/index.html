@@ -1447,6 +1447,7 @@ jbinLoad();
 // Don't auto-start camera
 let cameraActive = false;
 let flashActive = false;
+let guidanceShown = false;
 let macroActive = false;
 
 async function toggleCamera() {
@@ -1488,7 +1489,7 @@ async function toggleFlash() {
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: { exact: 'environment' },
-                width: { ideal: 720 },
+                width: { ideal: 1280 },
                 height: { ideal: 720 },
                 torch: newState
             },
@@ -1505,6 +1506,17 @@ async function toggleFlash() {
             });
         }
         flashActive = newState;
+        // إعادة تطبيق الماكرو (فوكس بس - بدون zoom عشان ما يتعارضش مع torch)
+        try {
+            var newTrack = stream.getVideoTracks()[0];
+            if (newTrack && newTrack.getCapabilities) {
+                var newCaps = newTrack.getCapabilities();
+                var macroAdv = [];
+                if (newCaps.focusMode && newCaps.focusMode.indexOf('continuous') >= 0) macroAdv.push({focusMode:'continuous'});
+                if (!flashActive && newCaps.zoom && newCaps.zoom.max > 1) macroAdv.push({zoom: Math.min(newCaps.zoom.max, 2.0)});
+                if (macroAdv.length > 0) await newTrack.applyConstraints({advanced: macroAdv});
+            }
+        } catch(me) { console.log('ماكرو بعد فلاش:', me.message); }
         setTimeout(startAutoAnalysis, 1500);
         var btn = document.getElementById('btnFlash');
         if (flashActive) {
@@ -1521,7 +1533,7 @@ async function toggleFlash() {
         // لو فشل - ارجع افتح الكاميرا عادي بدون فلاش
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' }, width: { ideal: 720 }, height: { ideal: 720 } },
+                video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
                 audio: false
             });
             var video2 = document.getElementById('video');
@@ -1752,7 +1764,7 @@ async function startCamera() {
   }
 
   var attempts = [
-    { video: { facingMode: {exact: 'environment'}, width: {ideal:720}, height: {ideal:720} }, audio: false },
+    { video: { facingMode: {exact: 'environment'}, width: {ideal:1280}, height: {ideal:720} }, audio: false },
     { video: { facingMode: 'environment' }, audio: false },
     { video: true, audio: false }
   ];
@@ -1796,8 +1808,40 @@ async function startCamera() {
     });
   }
 
-  // ماكرو تلقائي - محذوف عشان ما يتعارضش مع torch/الفلاش
-  // لو عايز ترجعه: focusMode:'continuous' + zoom: 2.0
+  // ماكرو تلقائي + رسائل إرشاد
+  macroActive = false;
+  try {
+    var track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      var caps = track.getCapabilities();
+      var adv = [];
+      // Focus
+      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) {
+        adv.push({focusMode:'continuous'});
+      } else if (!guidanceShown) {
+        addChatMsg('المساعد', '📷 حاول تثبت الموبايل عشان الفوكس يظبط', 'bot');
+      }
+      // Zoom (ماكرو)
+      if (caps.zoom && caps.zoom.max > 1) {
+        adv.push({zoom: Math.min(caps.zoom.max, 2.0)});
+        macroActive = true;
+      } else if (!guidanceShown) {
+        addChatMsg('المساعد', '🔍 موبايلك مش بيدعم ماكرو - قرّب الموبايل من الشريحة', 'bot');
+      }
+      if (adv.length > 0) await track.applyConstraints({advanced: adv});
+      // فحص دعم الفلاش
+      if (!guidanceShown) {
+        var torchSupported = false;
+        try {
+          if (caps.torch) torchSupported = true;
+        } catch(x) {}
+        if (!torchSupported) {
+          addChatMsg('المساعد', '🔦 موبايلك مش بيدعم الفلاش من المتصفح - شغّل إضاءة كويسة أو كشاف من تطبيق تاني', 'bot');
+        }
+      }
+      guidanceShown = true;
+    }
+  } catch(e) { console.log('ماكرو:', e.message); }
 
   return true;
 }
