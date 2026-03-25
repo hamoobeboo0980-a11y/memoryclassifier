@@ -1479,56 +1479,33 @@ async function toggleFlash() {
         addChatMsg('المساعد', '⚠️ شغّل الكاميرا أولاً', 'bot');
         return;
     }
-    var track = stream.getVideoTracks()[0];
-    if (!track) {
-        addChatMsg('المساعد', '❌ لا يوجد مسار فيديو', 'bot');
-        return;
-    }
     var newState = !flashActive;
-    var success = false;
-    // محاولة 1: إعادة ضبط القيود ثم تطبيق torch
     try {
-        await track.applyConstraints({});
-        await track.applyConstraints({ advanced: [{ torch: newState }] });
-        success = true;
-        flashActive = newState;
-        console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via direct applyConstraints');
-    } catch (err) {
-        console.warn('Direct torch failed:', err.message);
-        // محاولة 2: constraint عادي بدون advanced
-        try {
-            await track.applyConstraints({ torch: newState });
-            success = true;
-            flashActive = newState;
-            console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via simple constraint');
-        } catch (err2) {
-            console.warn('Simple constraint also failed:', err2.message);
-            // محاولة 3: إعادة فتح الكاميرا مع torch في القيود الابتدائية
-            try {
-                var oldTracks = stream.getTracks();
-                var newStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: { exact: 'environment' },
-                        torch: newState
-                    }
-                });
-                oldTracks.forEach(function(t) { t.stop(); });
-                stream = newStream;
-                var video = document.getElementById('video');
-                if (video) video.srcObject = stream;
-                success = true;
-                flashActive = newState;
-                console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via re-initialization');
-                // إعادة تشغيل التحليل التلقائي بعد تغيير الـ stream
-                setTimeout(startAutoAnalysis, 1500);
-            } catch (err3) {
-                console.error('All torch methods failed:', err3);
-                addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز/المتصفح. حاول استخدام كشاف خارجي.', 'bot');
-                return;
-            }
+        // وقف الكاميرا الحالية
+        stopAutoAnalysis();
+        stream.getTracks().forEach(function(t) { t.stop(); });
+        // أعد فتحها مع torch في getUserMedia مباشرة
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: { exact: 'environment' },
+                width: { ideal: 720 },
+                height: { ideal: 720 },
+                torch: newState
+            },
+            audio: false
+        });
+        var video = document.getElementById('video');
+        if (video) {
+            video.srcObject = stream;
+            await new Promise(function(resolve) {
+                video.onloadedmetadata = function() {
+                    video.play().then(resolve).catch(function(e) { resolve(); });
+                };
+                setTimeout(resolve, 2000);
+            });
         }
-    }
-    if (success) {
+        flashActive = newState;
+        setTimeout(startAutoAnalysis, 1500);
         var btn = document.getElementById('btnFlash');
         if (flashActive) {
             btn.style.background = 'rgba(255,200,0,0.3)';
@@ -1539,6 +1516,20 @@ async function toggleFlash() {
             btn.textContent = '🔦 كشاف';
             addChatMsg('المساعد', '🔦 الفلاش طفي', 'bot');
         }
+    } catch (err) {
+        console.error('Torch via getUserMedia failed:', err);
+        // لو فشل - ارجع افتح الكاميرا عادي بدون فلاش
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { exact: 'environment' }, width: { ideal: 720 }, height: { ideal: 720 } },
+                audio: false
+            });
+            var video2 = document.getElementById('video');
+            if (video2) video2.srcObject = stream;
+            setTimeout(startAutoAnalysis, 1500);
+        } catch(e2) {}
+        flashActive = false;
+        addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز. حاول استخدام كشاف خارجي.', 'bot');
     }
 }
 
