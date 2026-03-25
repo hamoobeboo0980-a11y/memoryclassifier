@@ -143,14 +143,76 @@
   /* Main */
   .main { padding: 16px; max-width: 480px; margin: 0 auto; }
 
-  /* Capture Section */
+  /* Camera Section */
   .camera-section {
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 20px;
     overflow: hidden;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     position: relative;
+  }
+
+  .camera-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  #canvas { display: none; }
+
+  .cam-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .target-frame {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 65%; aspect-ratio: 1.2;
+    border: 2px solid rgba(0,212,255,0.6);
+    border-radius: 8px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
+  }
+  .target-frame::before, .target-frame::after,
+  .target-frame .c1, .target-frame .c2 {
+    content: ''; position: absolute; width: 18px; height: 18px;
+    border-color: var(--accent); border-style: solid;
+  }
+  .target-frame::before { top:-2px;right:-2px;border-width:3px 3px 0 0;border-radius:0 6px 0 0; }
+  .target-frame::after  { top:-2px;left:-2px;border-width:3px 0 0 3px;border-radius:6px 0 0 0; }
+  .target-frame .c1     { bottom:-2px;right:-2px;border-width:0 3px 3px 0;border-radius:0 0 6px 0; }
+  .target-frame .c2     { bottom:-2px;left:-2px;border-width:0 0 3px 3px;border-radius:0 0 0 6px; }
+
+  .quality-bar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    padding: 8px 14px; display: flex; gap: 10px; align-items: center;
+  }
+  .q-item { display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted); }
+  .q-dot { width:8px;height:8px;border-radius:50%;background:#333;transition:all 0.3s; }
+  .q-dot.good { background:#00ff88;box-shadow:0 0 6px #00ff88; }
+  .q-dot.warn { background:#ffaa00;box-shadow:0 0 6px #ffaa00; }
+  .q-dot.bad  { background:#ff4455; }
+
+  .auto-progress-bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: rgba(0,0,0,0.5); z-index: 10;
+  }
+  .auto-progress-fill {
+    height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #00ff88);
+    transition: width 0.3s; border-radius: 0 2px 2px 0;
   }
 
   .btn-capture {
@@ -250,9 +312,9 @@
   .result-card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: 16px;
     overflow: hidden;
-    margin-bottom: 16px;
+    margin-bottom: 8px;
     display: none;
   }
 
@@ -294,7 +356,7 @@
   }
 
   .result-body {
-    padding: 24px 16px;
+    padding: 14px 12px;
     text-align: center;
     position: relative;
   }
@@ -329,7 +391,7 @@
   }
 
   .storage-number {
-    font-size: 72px;
+    font-size: 56px;
     font-weight: 900;
     line-height: 1;
     background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
@@ -339,7 +401,7 @@
   }
 
   .storage-unit {
-    font-size: 28px;
+    font-size: 22px;
     font-weight: 700;
     color: var(--muted);
     margin-right: 4px;
@@ -472,10 +534,10 @@
   .loading-card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 32px;
+    border-radius: 16px;
+    padding: 20px;
     text-align: center;
-    margin-bottom: 16px;
+    margin-bottom: 10px;
     display: none;
   }
 
@@ -706,7 +768,7 @@
   /* Image preview */
   .img-preview {
     width: 100%;
-    max-height: 200px;
+    max-height: 120px;
     object-fit: contain;
     border-radius: 12px;
     margin-bottom: 12px;
@@ -734,18 +796,25 @@
 
 <div class="main">
 
-  <!-- Capture Section - كاميرا الموبايل الأصلية -->
+  <!-- Camera Section -->
   <div class="camera-section">
-    <canvas id="canvas" style="display:none"></canvas>
-    <!-- منطقة معاينة الصورة -->
-    <div id="capturePreview" style="width:100%;aspect-ratio:4/3;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
-      <img id="previewImg" style="max-width:100%;max-height:100%;object-fit:contain;display:none">
-      <div id="previewPlaceholder" style="text-align:center;padding:20px">
-        <div style="font-size:64px;margin-bottom:12px">📸</div>
-        <div style="font-size:16px;font-weight:700;color:var(--accent);margin-bottom:6px">صوّر الشريحة</div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.6">اضغط على الزر لفتح كاميرا الموبايل<br>أو ارفع صورة من المعرض</div>
+    <div class="camera-wrapper" id="cameraWrapper">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="cam-overlay" id="overlay">
+        <div class="target-frame" id="targetFrame">
+          <div class="c1"></div>
+          <div class="c2"></div>
+        </div>
       </div>
-      <!-- Result Overlay -->
+      <div class="quality-bar">
+        <div class="q-item"><div class="q-dot" id="qSharp"></div> حدة</div>
+        <div class="q-item"><div class="q-dot" id="qStable"></div> ثبات</div>
+        <div class="q-item"><div class="q-dot" id="qLight"></div> إضاءة</div>
+        <div class="q-item" style="margin-right:auto;font-size:10px;color:var(--muted)" id="autoMsg">وجّه الكاميرا</div>
+      </div>
+      <div class="auto-progress-bar"><div class="auto-progress-fill" id="autoProgressFill"></div></div>
+      <!-- Result Overlay inside camera -->
       <div id="resultOverlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);z-index:20;flex-direction:column;align-items:center;justify-content:center;gap:8px">
         <img id="imgPreviewOverlay" style="max-height:45%;max-width:90%;border-radius:10px;object-fit:contain">
         <div id="typeBadgeOverlay"></div>
@@ -756,14 +825,17 @@
         <div id="detectedCodeOverlay" style="font-size:13px;color:#aaa;letter-spacing:1px"></div>
       </div>
     </div>
-    <!-- 2 buttons row -->
-    <div style="display:flex;gap:8px;padding:12px;background:var(--card)">
-      <label class="btn-capture" style="flex:2;font-size:15px;padding:14px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px">
-        📸 صوّر شريحة
+    <!-- Buttons row -->
+    <div style="display:flex;gap:6px;padding:10px;background:var(--card)">
+      <button class="btn-capture" id="btnCamToggle" onclick="toggleCamera()" style="flex:2;font-size:14px;padding:10px 4px">
+        📷 تشغيل الكاميرا
+      </button>
+      <label class="btn-upload" style="flex:1;font-size:12px;padding:10px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
+        📸 كاميرا
         <input type="file" accept="image/*" capture="environment" style="display:none" onchange="captureNative(event)">
       </label>
-      <label class="btn-upload" style="flex:1;font-size:13px;padding:14px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">
-        🖼 من المعرض
+      <label class="btn-upload" style="flex:1;font-size:12px;padding:10px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
+        🖼 معرض
         <input type="file" accept="image/*" style="display:none" onchange="uploadImage(event)">
       </label>
     </div>
@@ -788,20 +860,6 @@
   <!-- Progress Bar -->
   <div class="progress-bar-container">
     <div class="progress-bar" id="scanBar"></div>
-  </div>
-
-  <!-- Chat Section -->
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;margin:12px 16px;overflow:hidden">
-    <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px">
-      🤖 <span style="color:var(--accent);font-weight:700">تكلم المساعد</span>
-      <span style="font-size:11px">- صحّح له أو اسأله</span>
-    </div>
-    <div id="chatMessages" style="height:140px;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:6px"></div>
-    <div style="display:flex;gap:8px;padding:8px 14px;border-top:1px solid var(--border)">
-      <input id="chatInput" placeholder="مثلاً: ده Kingston زجاجي EMMC32G..." style="flex: 1 1 0%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; color: var(--text); font-family: Cairo, sans-serif; font-size: 13px; outline: none;" onkeypress="if(event.key==='Enter') sendChat()" data-manus_clickable="true" data-manus_click_id="5">
-      <button onclick="sendChat()" style="background:linear-gradient(135deg,var(--accent),#7b6cff);border:none;border-radius:10px;color:#000;font-family:Cairo,sans-serif;font-size:13px;font-weight:700;padding:9px 16px;cursor:pointer" data-manus_clickable="true" data-manus_click_id="6">إرسال</button>
-      <button onclick="testJbin()" title="تست السحابة" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:16px;padding:9px 12px;cursor:pointer" data-manus_clickable="true" data-manus_click_id="7">☁️</button>
-    </div>
   </div>
 
   <!-- Hidden code input for copy -->
@@ -864,6 +922,20 @@
     </div>
   </div>
 
+  <!-- Chat Section - تحت النتيجة -->
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;margin:8px 0;overflow:hidden">
+    <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
+      🤖 <span style="color:var(--accent);font-weight:700">المساعد</span>
+      <span style="font-size:11px">- صحّف له أو اسأله</span>
+    </div>
+    <div id="chatMessages" style="height:100px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px"></div>
+    <div style="display:flex;gap:6px;padding:6px 12px;border-top:1px solid var(--border)">
+      <input id="chatInput" placeholder="مثلاً: ده Kingston زجاجي EMMC32G..." style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text);font-family:Cairo,sans-serif;font-size:12px;outline:none" onkeypress="if(event.key==='Enter') sendChat()">
+      <button onclick="sendChat()" style="background:linear-gradient(135deg,var(--accent),#7b6cff);border:none;border-radius:10px;color:#000;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;padding:8px 14px;cursor:pointer">إرسال</button>
+      <button onclick="testJbin()" title="تست السحابة" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:14px;padding:8px 10px;cursor:pointer">☁️</button>
+    </div>
+  </div>
+
 </div>
 
 <div class="toast" id="toast">تم النسخ ✓</div>
@@ -894,8 +966,13 @@ let unknownCodes = JSON.parse(localStorage.getItem('unknownCodes') || '[]');
 let sessionCount = 0;
 var currentDisplayStorage = "";
 let currentCode = '';
+let stream = null;
 let isAnalyzing = false;
-var codeCache = {}; // كاش للبحث السريع - بيحفظ النتائج السابقة
+let cameraActive = false;
+var codeCache = {}; // كاش للبحث السريع
+var prevFrame = null;
+var autoProgress = 0;
+var autoInterval = null;
 
 // ═══════════════════════════════════════
 // LED INDICATORS + PROGRESS BAR
@@ -1216,6 +1293,7 @@ async function analyzeImage(base64, previewSrc) {
       var sourceInfo = parsed.suggestion ? ' (تصحيح ذكي: ' + parsed.suggestion + ')' : '';
       addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - صح ولا غلط؟', 'bot');
       isAnalyzing = false;
+      if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
     }
 
@@ -1240,6 +1318,7 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   isAnalyzing = false;
+  if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
 }
 
 function searchManual() {
@@ -1524,11 +1603,15 @@ function nextPhoto() {
   var ov = document.getElementById('resultOverlay'); if (ov) ov.style.display = 'none';
   document.getElementById('manualCode').value = '';
   isAnalyzing = false;
-  // إعادة المعاينة للحالة الأولية
-  var previewImg = document.getElementById('previewImg');
-  var placeholder = document.getElementById('previewPlaceholder');
-  if (previewImg) { previewImg.style.display = 'none'; previewImg.src = ''; }
-  if (placeholder) placeholder.style.display = 'block';
+  autoProgress = 0;
+  prevFrame = null;
+  // لو الكاميرا شغالة - ابدأ التقاط تلقائي تاني
+  if (stream && cameraActive) {
+    setTimeout(startAutoAnalysis, 500);
+  } else {
+    // لو الكاميرا مش شغالة - شغلها تلقائي
+    toggleCamera();
+  }
 }
 
 // API Key is on the server - no client key needed
@@ -1606,44 +1689,214 @@ jbinLoad();
 
 // Start
 
+// ===== كاميرا المتصفح + التقاط تلقائي ذكي =====
+async function toggleCamera() {
+  if (cameraActive) {
+    stopCamera();
+    document.getElementById('btnCamToggle').innerHTML = '📷 تشغيل الكاميرا';
+    document.getElementById('btnCamToggle').style.background = '';
+    cameraActive = false;
+  } else {
+    var ok = await startCamera();
+    if (ok) {
+      document.getElementById('btnCamToggle').innerHTML = '⏹ إيقاف';
+      document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
+      cameraActive = true;
+      setTimeout(startAutoAnalysis, 1500);
+    }
+  }
+}
 
+async function startCamera() {
+  if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(x){} stream = null; }
+  var attempts = [
+    { video: { facingMode: {exact:'environment'}, width:{ideal:1920}, height:{ideal:1080}, focusMode:'continuous' }, audio: false },
+    { video: { facingMode: {exact:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false }
+  ];
+  for (var i = 0; i < attempts.length; i++) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(attempts[i]);
+      break;
+    } catch(e) { stream = null; }
+  }
+  if (!stream) {
+    addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. استخدم زر "📸 كاميرا" لفتح كاميرا الموبايل.', 'bot');
+    return false;
+  }
+  var video = document.getElementById('video');
+  if (video) {
+    video.srcObject = stream;
+    video.muted = true;
+    await new Promise(function(resolve) {
+      video.onloadedmetadata = function() { video.play().then(resolve).catch(function(){resolve();}); };
+      setTimeout(resolve, 3000);
+    });
+  }
+  // ماكرو + فوكس
+  try {
+    var track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities) {
+      var caps = track.getCapabilities();
+      var adv = [];
+      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) adv.push({focusMode:'continuous'});
+      if (caps.zoom && caps.zoom.max > 1) adv.push({zoom: Math.min(caps.zoom.max, 1.3)});
+      try { if (caps.focusDistance && caps.focusDistance.min) adv.push({focusDistance: caps.focusDistance.min * 2}); } catch(fd){}
+      if (adv.length > 0) await track.applyConstraints({advanced: adv});
+    }
+  } catch(e) { console.log('ماكرو:', e.message); }
+  return true;
+}
 
-// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية =====
+function stopCamera() {
+  stopAutoAnalysis();
+  if (stream) { stream.getTracks().forEach(function(t){t.stop();}); stream = null; }
+}
+
+// ===== التقاط تلقائي ذكي (إعدادات Claude) =====
+function startAutoAnalysis() {
+  if (autoInterval) clearInterval(autoInterval);
+  autoProgress = 0;
+  prevFrame = null;
+  updateAutoUI(0, 'وجّه الكاميرا على شريحة الذاكرة');
+  autoInterval = setInterval(analyzeFrame, 800);
+}
+
+function stopAutoAnalysis() {
+  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
+  autoProgress = 0;
+  prevFrame = null;
+  updateAutoUI(0, '');
+}
+
+function analyzeFrame() {
+  if (!stream || isAnalyzing) return;
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('canvas');
+  if (!video || !canvas || video.videoWidth === 0) return;
+  
+  var ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  
+  // ناخد منطقة المنتصف (50%)
+  var cx = Math.floor(canvas.width * 0.25);
+  var cy = Math.floor(canvas.height * 0.25);
+  var cw = Math.floor(canvas.width * 0.5);
+  var ch = Math.floor(canvas.height * 0.5);
+  var imgData = ctx.getImageData(cx, cy, cw, ch);
+  var data = imgData.data;
+  
+  // 1. الحدة - Laplacian variance
+  var sharp = 0;
+  for (var y = 1; y < ch-1; y += 4) {
+    for (var x = 1; x < cw-1; x += 4) {
+      var idx = (y * cw + x) * 4;
+      var center = data[idx];
+      var top = data[((y-1)*cw+x)*4] || 0;
+      var bottom = data[((y+1)*cw+x)*4] || 0;
+      var left = data[(y*cw+(x-1))*4] || 0;
+      var right = data[(y*cw+(x+1))*4] || 0;
+      sharp += Math.abs(4*center - top - bottom - left - right);
+    }
+  }
+  sharp = Math.min(sharp / 1000, 100);
+  
+  // 2. الثبات
+  var stability = 50;
+  if (prevFrame && prevFrame.length === data.length) {
+    var diff = 0;
+    for (var i = 0; i < data.length; i += 16)
+      diff += Math.abs(data[i] - prevFrame[i]);
+    diff /= (data.length / 16);
+    stability = Math.max(0, 100 - diff * 2);
+  }
+  prevFrame = new Uint8ClampedArray(data);
+  
+  // 3. الإضاءة
+  var brightness = 0;
+  for (var i = 0; i < data.length; i += 4)
+    brightness += (data[i] + data[i+1] + data[i+2]) / 3;
+  brightness /= (data.length / 4);
+  
+  // الشروط
+  var qSharp = sharp > 15 ? 'good' : sharp > 8 ? 'warn' : 'bad';
+  var qStable = stability > 70 ? 'good' : stability > 40 ? 'warn' : 'bad';
+  var qLight = (brightness > 60 && brightness < 220) ? 'good' : brightness > 30 ? 'warn' : 'bad';
+  
+  // تحديث المؤشرات
+  document.getElementById('qSharp').className = 'q-dot ' + qSharp;
+  document.getElementById('qStable').className = 'q-dot ' + qStable;
+  document.getElementById('qLight').className = 'q-dot ' + qLight;
+  
+  // العداد - لو الـ 3 شروط good يعد، لو لا يرجع للورا
+  var allGood = qSharp === 'good' && qStable === 'good' && qLight === 'good';
+  if (allGood) {
+    autoProgress = Math.min(100, autoProgress + 3);
+  } else {
+    autoProgress = Math.max(0, autoProgress - 5);
+  }
+  
+  // رسائل التوجيه
+  var msg = 'وجّه الكاميرا';
+  if (qLight === 'bad') msg = '💡 الإضاءة ضعيفة';
+  else if (qSharp === 'bad') msg = '🔍 قرّب أكتر';
+  else if (qStable === 'bad') msg = '✋ ثبّت إيدك';
+  else if (allGood && autoProgress < 100) msg = '✨ ممتاز! ثبّت... ' + autoProgress + '%';
+  else if (allGood && autoProgress >= 100) msg = '📸 جاري التصنيف...';
+  
+  updateAutoUI(autoProgress, msg);
+  
+  // لما يوصل 100 يلتقط
+  if (autoProgress >= 100) {
+    stopAutoAnalysis();
+    captureAndAnalyze();
+  }
+}
+
+function captureAndAnalyze() {
+  var video = document.getElementById('video');
+  var canvas = document.getElementById('canvas');
+  if (!video || !canvas) return;
+  var ctx = canvas.getContext('2d');
+  canvas.width = Math.max(video.videoWidth, 1280);
+  canvas.height = Math.max(video.videoHeight, 720);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  var previewUrl = canvas.toDataURL('image/jpeg', 1.0);
+  var imageData = enhanceForGemini(canvas);
+  analyzeImage(imageData, previewUrl);
+}
+
+function updateAutoUI(progress, msg) {
+  var fill = document.getElementById('autoProgressFill');
+  if (fill) fill.style.width = progress + '%';
+  var el = document.getElementById('autoMsg');
+  if (el && msg) el.textContent = msg;
+}
+
+// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية (بديل) =====
 function captureNative(event) {
   var file = event.target.files[0];
   if (!file) return;
-  
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
-    
-    // عرض المعاينة
-    var previewImg = document.getElementById('previewImg');
-    var placeholder = document.getElementById('previewPlaceholder');
-    if (previewImg) {
-      previewImg.src = base64Full;
-      previewImg.style.display = 'block';
-    }
-    if (placeholder) placeholder.style.display = 'none';
-    
-    // تحسين الصورة قبل الإرسال
     var img = new Image();
     img.onload = function() {
       var canvas = document.getElementById('canvas');
-      if (!canvas) { canvas = document.createElement('canvas'); }
+      if (!canvas) canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       var ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
-      
-      // تحسين (قص + تباين + حدة)
       var imageData = enhanceForGemini(canvas);
       analyzeImage(imageData, base64Full);
     };
     img.src = base64Full;
   };
   reader.readAsDataURL(file);
-  // إعادة تعيين الـ input عشان يشتغل لو اختار نفس الصورة تاني
   event.target.value = '';
 }
 
@@ -1934,30 +2187,18 @@ function enhanceForGemini(sourceCanvas) {
 function uploadImage(event) {
   var file = event.target.files[0];
   if (!file) return;
-  
+  stopAutoAnalysis(); // وقف التلقائي
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
-    
-    // عرض المعاينة
-    var previewImg = document.getElementById('previewImg');
-    var placeholder = document.getElementById('previewPlaceholder');
-    if (previewImg) {
-      previewImg.src = base64Full;
-      previewImg.style.display = 'block';
-    }
-    if (placeholder) placeholder.style.display = 'none';
-    
-    // تحسين الصورة قبل الإرسال
     var img = new Image();
     img.onload = function() {
       var canvas = document.getElementById('canvas');
-      if (!canvas) { canvas = document.createElement('canvas'); }
+      if (!canvas) canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       var ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
-      
       var imageData = enhanceForGemini(canvas);
       analyzeImage(imageData, base64Full);
     };
@@ -1966,8 +2207,6 @@ function uploadImage(event) {
   reader.readAsDataURL(file);
   event.target.value = '';
 }
-
-// Auto analysis removed - using native camera instead
 
 </script>
 </body>
