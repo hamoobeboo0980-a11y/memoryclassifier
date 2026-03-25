@@ -153,6 +153,51 @@ function detectCompany(code) {
 // API Endpoint - المنطق الجديد
 // ═══════════════════════════════════════════════════════════════
 
+// دالة البحث التقريبي - بتدور على أقرب كود شبيه لو الكود الأصلي مش موجود
+function fuzzySearchInDB(code) {
+    if (!code || code.length < 4) return null;
+    const upper = code.toUpperCase().trim();
+    let bestMatch = null;
+    let bestDist = 3; // أقصى فرق مسموح: 2 حرف
+
+    function levenshtein(a, b) {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+        const matrix = [];
+        for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+        for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+        for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+                if (b[i-1] === a[j-1]) matrix[i][j] = matrix[i-1][j-1];
+                else matrix[i][j] = Math.min(matrix[i-1][j-1]+1, matrix[i][j-1]+1, matrix[i-1][j]+1);
+            }
+        }
+        return matrix[b.length][a.length];
+    }
+
+    // دور في العادي
+    for (const [capacity, codes] of Object.entries(NORMAL_DB)) {
+        for (const c of codes) {
+            const dist = levenshtein(upper, c.toUpperCase());
+            if (dist > 0 && dist < bestDist) {
+                bestDist = dist;
+                bestMatch = { code: c, storage: capacity.split('+')[0], type: 'عادي', company: detectCompany(c), originalRead: code, distance: dist };
+            }
+        }
+    }
+    // دور في الزجاجي
+    for (const [size, codes] of Object.entries(EMMC_DB)) {
+        for (const c of codes) {
+            const dist = levenshtein(upper, c.toUpperCase());
+            if (dist > 0 && dist < bestDist) {
+                bestDist = dist;
+                bestMatch = { code: c, storage: size, type: 'زجاجي', company: detectCompany(c), originalRead: code, distance: dist };
+            }
+        }
+    }
+    return bestMatch;
+}
+
 app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64, learnedCodes } = req.body;
@@ -160,96 +205,132 @@ app.post('/api/analyze', async (req, res) => {
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        // ─────────────────────────────────────────────────────────
-        // المرحلة 1: Gemini يقرأ الكود فقط من الصورة (سريع جداً)
-        // ─────────────────────────────────────────────────────────
-        const readPrompt = `أنت خبير في قراءة الأكواد المنقوشة على شرائح الذاكرة (IC chips) في الهواتف.
+        // ═══════════════════════════════════════════════════════
+        // المحاولة الأولى: سريعة (للصور الواضحة)
+        // ═══════════════════════════════════════════════════════
+        const fastPrompt = `أنت خبير في قراءة الأكواد المنقوشة على شرائح الذاكرة (Memory IC chips) في الهواتف.
 
-مهمتك الوحيدة: انظر للصورة وابحث عن شريحة الذاكرة الرئيسية.
-- تجاهل تماماً: CPU / Snapdragon / Mediatek / GPU / أي شريحة غير الذاكرة
-- ركز على شريحة الذاكرة فقط: Samsung (KM/KLM/KLU) / SK Hynix (H9/H26/H28) / Toshiba (THG) / SanDisk (SDIN) / Micron (JW/JZ) / YMEC (TY) / UNIC (08EMCP/16EMCP)
+تعليمات مهمة جداً:
+- في الصورة بوردة هاتف عليها شرائح كتيرة
+- أنا عايز شريحة الذاكرة بس! مش البروسيسور!
+- شريحة الذاكرة هي الشريحة السوداء الكبيرة اللي مكتوب عليها كود بيبدأ بواحد من دول:
+  * Samsung: KM أو KLM أو KLU
+  * SK Hynix: H9 أو H26 أو H28
+  * Toshiba: THG
+  * SanDisk: SDIN
+  * Micron: JW أو JZ
+  * YMEC: YMEC أو TY
+  * UNIC: 08EMCP أو 16EMCP
 
-اقرأ الكود المنقوش على شريحة الذاكرة بدقة شديدة.
-- لو Samsung KM: الكود الرئيسي + اللاحقة (مثل KMK7X000VM-B314)
-- لو Samsung KLM/KLU: الكود الكامل + اللاحقة (مثل KLMAG4FE4B-B002)
-- لو SK Hynix H9: الكود الكامل (مثل H9TQ17ADFTMCUR)
-- لو Toshiba THG: الكود الكامل (مثل THGBMAG7A2JBAIR)
-- لو SanDisk: الكود الكامل (مثل SDIN7DU2-16G)
-- لو Micron JW/JZ: الكود فقط (مثل JZ144)
+- تجاهل تماماً أي شريحة مكتوب عليها Snapdragon أو Qualcomm أو Mediatek أو MT أو SDM أو SM - دي شرائح CPU مش ذاكرة!
+- تجاهل أي شريحة صغيرة أو مكتوب عليها PM أو WCD أو WCN - دي شرائح طاقة ووايفاي
 
-أرجع الكود فقط كنص خام بدون أي شرح. مثال: KLMAG4FE4B-B002`;
+اقرأ الكود المكتوب على شريحة الذاكرة بس وارجعه كنص خام بدون أي شرح.
+لو مش شايف شريحة ذاكرة، ارجع كلمة: NOT_FOUND`;
 
-        const readResult = await model.generateContent({
-            contents: [{ parts: [
-                { inlineData: { data: imageBase64, mimeType: "image/jpeg" } },
-                { text: readPrompt }
-            ]}],
-            generationConfig: { temperature: 0 }
-        });
+        let rawCode = '';
+        try {
+            const readResult = await model.generateContent({
+                contents: [{ parts: [
+                    { inlineData: { data: imageBase64, mimeType: "image/jpeg" } },
+                    { text: fastPrompt }
+                ]}],
+                generationConfig: { temperature: 0 }
+            });
+            rawCode = readResult.response.text().replace(/```/g, '').trim().split('\n')[0].trim();
+            console.log('محاولة 1 (سريعة):', rawCode);
+        } catch (fastErr) {
+            console.error('محاولة 1 فشلت:', fastErr.message);
+        }
 
-        const rawCode = readResult.response.text().replace(/```/g, '').trim().split('\n')[0].trim();
-        console.log('Gemini read code:', rawCode);
+        // لو المحاولة الأولى نجحت والكود صالح - دور في الجداول
+        if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3) {
+            const result = lookupCode(rawCode, learnedCodes);
+            if (result) return res.json(result);
+        }
 
-        // ─────────────────────────────────────────────────────────
-        // المرحلة 2: البحث في قواعد البيانات والاختصارات
-        // ─────────────────────────────────────────────────────────
+        // ═══════════════════════════════════════════════════════
+        // المحاولة التانية: بعناية شديدة (للصور الصعبة)
+        // ═══════════════════════════════════════════════════════
+        console.log('المحاولة الأولى ما نفعتش، بحاول بعناية...');
 
-        // أولاً: تحقق من التصحيحات المتعلمة (corrected=true تأخذ أولوية قصوى)
-        if (learnedCodes && learnedCodes.length > 0) {
-            for (const item of learnedCodes) {
-                if (item.corrected && rawCode.toUpperCase().includes(item.code.toUpperCase())) {
-                    console.log('Found CORRECTED learned code (priority):', item.code);
-                    return res.json({
-                        code: rawCode,
-                        storage: item.storage,
-                        type: item.type === 'glass' ? 'زجاجي' : 'عادي',
-                        company: detectCompany(rawCode)
-                    });
-                }
+        const carefulPrompt = `أنت خبير متخصص في قراءة الأكواد المنقوشة على شرائح الذاكرة. الصورة ممكن تكون مش واضحة، فركز جداً.
+
+خطواتك بالترتيب:
+1. دور على الشريحة السوداء الكبيرة - دي شريحة الذاكرة
+2. الشريحة دي عليها كتابة صغيرة بالليزر - اقرأها حرف حرف
+3. الكود بيبدأ بواحد من دول:
+   - Samsung: KM أو KLM أو KLU (أكثر شركة منتشرة)
+   - SK Hynix: H9 أو H26 أو H28
+   - Toshiba: THG
+   - SanDisk: SDIN
+   - Micron: JW أو JZ
+   - YMEC: YMEC أو TY (شريحة صيني)
+   - UNIC: 08EMCP أو 16EMCP
+
+تحذيرات مهمة جداً:
+- لا تقرأ شريحة البروسيسور (CPU)! البروسيسور مكتوب عليه Snapdragon أو Qualcomm أو Mediatek أو SDM أو SM أو MT
+- لا تقرأ شرائح الطاقة (PM/WCD/WCN)
+- الحرف O والرقم 0 بيتلخبطوا - في الأكواد غالباً بيكون رقم 0
+- الحرف I والرقم 1 بيتلخبطوا - في الأكواد غالباً بيكون حرف I
+- الحرف B والرقم 8 بيتلخبطوا
+${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس ما لقيناهوش في الجداول. ممكن تكون قرأته غلط. حاول تقرأه تاني بدقة أكبر.' : ''}
+
+ارجع الكود فقط كنص خام. لو مش شايف شريحة ذاكرة خالص، ارجع: NOT_FOUND`;
+
+        let carefulCode = '';
+        try {
+            const carefulResult = await model.generateContent({
+                contents: [{ parts: [
+                    { inlineData: { data: imageBase64, mimeType: "image/jpeg" } },
+                    { text: carefulPrompt }
+                ]}],
+                generationConfig: { temperature: 0.2 }
+            });
+            carefulCode = carefulResult.response.text().replace(/```/g, '').trim().split('\n')[0].trim();
+            console.log('محاولة 2 (بعناية):', carefulCode);
+        } catch (carefulErr) {
+            console.error('محاولة 2 فشلت:', carefulErr.message);
+        }
+
+        // لو المحاولة التانية طلعت كود مختلف - دور بيه
+        const finalCode = (carefulCode && carefulCode !== 'NOT_FOUND' && carefulCode.length >= 3) ? carefulCode : rawCode;
+        if (finalCode && finalCode !== 'NOT_FOUND') {
+            const result = lookupCode(finalCode, learnedCodes);
+            if (result) return res.json(result);
+
+            // ═══ التصحيح الذكي: دور على أقرب كود شبيه ═══
+            const fuzzy = fuzzySearchInDB(finalCode);
+            if (fuzzy) {
+                console.log('تصحيح ذكي: قرأت "' + finalCode + '" وأقرب كود "' + fuzzy.code + '" (فرق: ' + fuzzy.distance + ')');
+                return res.json({
+                    code: fuzzy.code,
+                    storage: fuzzy.storage,
+                    type: fuzzy.type,
+                    company: fuzzy.company,
+                    suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code
+                });
             }
         }
 
-        // ثانياً: بحث في قواعد البيانات والاختصارات
-        const dbResult = searchInDB(rawCode);
-        if (dbResult) {
-            console.log('Found in DB:', dbResult);
-            return res.json(dbResult);
-        }
-
-        // ثالثاً: بحث في الأكواد المتعلمة غير المصححة
-        if (learnedCodes && learnedCodes.length > 0) {
-            for (const item of learnedCodes) {
-                if (!item.corrected && rawCode.toUpperCase().includes(item.code.toUpperCase())) {
-                    console.log('Found in learned codes (non-corrected):', item.code);
-                    return res.json({
-                        code: rawCode,
-                        storage: item.storage,
-                        type: item.type === 'glass' ? 'زجاجي' : 'عادي',
-                        company: detectCompany(rawCode)
-                    });
-                }
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────
-        // المرحلة 3: لم يُعثر عليه - Gemini يفكر ويحلل (نادر)
-        // ─────────────────────────────────────────────────────────
-        console.log('Not found in DB, asking Gemini to analyze...');
+        // ═══ لو لسه مش لاقيه - Gemini يحلل بنفسه ═══
+        const codeToAnalyze = finalCode || rawCode || 'UNKNOWN';
+        console.log('مش في الجداول، Gemini بيحلل:', codeToAnalyze);
 
         const analyzePrompt = `أنت خبير في تصنيف شرائح الذاكرة.
 
-الكود الذي قرأته من الصورة هو: "${rawCode}"
-
-هذا الكود غير موجود في قاعدة البيانات. حلله بنفسك:
-- إذا كان Samsung KLM/KLU: الحرفان في الموضع 5-6 → AG=16GB | BG=32GB | CG=64GB | DG=128GB | EG=256GB | FG=512GB → نوع: زجاجي
-- إذا كان Samsung KM: الحرف قبل 000/100/200/600 → N=8 | E=16 | X=32 | D=32 | C=64 | H=64 | G=128 | V=128 | F=256 → نوع: عادي
-- إذا كان SK Hynix H9TQ: الرقمان في الموضع 5-6 → 17/18=16GB | 26/27=32GB | 52/53=64GB | 16=128GB → نوع: عادي
-- إذا كان Toshiba THG: الحرفان في الموضع 7-8 → G7=16 | G8=32 | G9=64 | T0=128 | T1=256 → نوع: زجاجي
-- إذا كان SanDisk SDIN: المساحة مكتوبة صريحة في الكود → نوع: زجاجي
-- إذا كان Micron JW/JZ: راجع حجمه من الصورة → نوع: زجاجي
+الكود: "${codeToAnalyze}"
+هذا الكود مش في قاعدة البيانات. حلله:
+- Samsung KLM/KLU: الحرفان 5-6 → AG=16 | BG=32 | CG=64 | DG=128 | EG=256 | FG=512 → زجاجي
+- Samsung KM: الحرف قبل 000/100/200/600 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256 → عادي
+- SK Hynix H9TQ: الرقمان 5-6 → 17/18=16|26/27=32|52/53=64|16=128 → عادي
+- Toshiba THG: الحرفان 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256 → زجاجي
+- SanDisk SDIN: المساحة مكتوبة صريحة → زجاجي
+- Micron JW/JZ: زجاجي
+- YMEC: الحرف الخامس بعد YMEC → 6/G=32|7=64|8/B=128|9=256 → زجاجي
 
 أرجع JSON فقط:
-{"code":"${rawCode}","storage":"المساحة بالأرقام فقط","type":"عادي أو زجاجي","company":"اسم الشركة"}`;
+{"code":"${codeToAnalyze}","storage":"رقم","type":"عادي أو زجاجي","company":"اسم"}`;
 
         const analyzeResult = await model.generateContent({
             contents: [{ parts: [{ text: analyzePrompt }]}],
@@ -257,32 +338,66 @@ app.post('/api/analyze', async (req, res) => {
         });
 
         let analyzeText = analyzeResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-
         let parsed;
         try {
             parsed = JSON.parse(analyzeText);
         } catch(e1) {
             try {
                 const jsonMatch = analyzeText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
-                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { code: rawCode, storage: '', type: '', company: '' };
+                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { code: codeToAnalyze, storage: '', type: '', company: '' };
             } catch(e2) {
-                parsed = { code: rawCode, storage: '', type: '', company: '' };
+                parsed = { code: codeToAnalyze, storage: '', type: '', company: '' };
             }
         }
 
-        console.log('Gemini analysis result:', parsed);
+        console.log('Gemini حلل:', parsed);
         res.json(parsed);
 
     } catch (error) {
-        console.error("Analyze error:", error.message || error);
+        console.error("خطأ التحليل:", error.message || error);
         let errMsg = 'خطأ في التحليل';
         if (error.message && error.message.includes('quota')) errMsg = 'الرصيد خلص - جرب بعدين';
         else if (error.message && error.message.includes('size')) errMsg = 'الصورة كبيرة - صور أقرب';
         else if (error.message && error.message.includes('SAFETY')) errMsg = 'Gemini رفض الصورة - جرب صورة تانية';
         else if (error.message && error.message.includes('timeout')) errMsg = 'الوقت خلص - جرب تاني';
+        else errMsg = 'خطأ: ' + (error.message || 'جرب تاني').substring(0, 80);
         res.status(500).json({ error: errMsg });
     }
 });
+
+// دالة البحث الموحدة - بتدور في كل المصادر
+function lookupCode(code, learnedCodes) {
+    const cleanCode = code.replace(/[.,\s]+$/g, '').trim();
+    
+    // 1. تصحيحات المستخدم (أعلى أولوية)
+    if (learnedCodes && learnedCodes.length > 0) {
+        for (const item of learnedCodes) {
+            if (item.corrected && cleanCode.toUpperCase().includes(item.code.toUpperCase())) {
+                console.log('لقيته في التصحيحات:', item.code);
+                return { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+            }
+        }
+    }
+    
+    // 2. الجداول والاختصارات
+    const dbResult = searchInDB(cleanCode);
+    if (dbResult) {
+        console.log('لقيته في الجداول:', dbResult);
+        return dbResult;
+    }
+    
+    // 3. الأكواد المتعلمة
+    if (learnedCodes && learnedCodes.length > 0) {
+        for (const item of learnedCodes) {
+            if (!item.corrected && cleanCode.toUpperCase().includes(item.code.toUpperCase())) {
+                console.log('لقيته في المتعلم:', item.code);
+                return { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+            }
+        }
+    }
+    
+    return null;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Chat API - شات ذكي مع Gemini

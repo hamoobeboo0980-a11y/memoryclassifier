@@ -1073,22 +1073,12 @@ async function analyzeImage(base64, previewSrc) {
     });
 
     if (!geminiRes.ok) {
-      // جرب مرة تانية قبل ما تفشل
-      console.log('First attempt failed, retrying...');
-      var retryAnalyze = await fetch('/api/analyze', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned })
-      });
-      if (!retryAnalyze.ok) {
-        var errData = {};
-        try { errData = await retryAnalyze.json(); } catch(e){}
-        showLoading(false);
-        showError('❌ فشل التحليل - ' + (errData.error || 'جرب تاني'));
-        isAnalyzing = false;
-        return;
-      }
-      geminiRes = retryAnalyze;
+      var errData = {};
+      try { errData = await geminiRes.json(); } catch(e){}
+      showLoading(false);
+      showError('❌ ' + (errData.error || 'فشل التحليل - جرب تاني'));
+      isAnalyzing = false;
+      return;
     }
 
     var parsed = await geminiRes.json();
@@ -1100,30 +1090,13 @@ async function analyzeImage(base64, previewSrc) {
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
 
-    // لو ما لقاش كود - حاول تاني
+    // لو ما لقاش كود - السيرفر جرب مرتين (سريعة + بعناية) ومش لاقي
     if (!detectedCode || !isValidCode(detectedCode)) {
-      var retryRes = await fetch('/api/analyze', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned })
-      });
-      var retryParsed = await retryRes.json();
-      if (!retryParsed.code) retryParsed = {code:'', storage:'', type:'', company:''};
-      
-      if (retryParsed.code && isValidCode(retryParsed.code)) {
-        parsed = retryParsed;
-        detectedCode = retryParsed.code;
-        currentCode = detectedCode;
-        lastParsed = parsed;
-        var manualInput2 = document.getElementById('manualCode');
-        if (manualInput2) manualInput2.value = detectedCode;
-      } else {
-        showLoading(false);
-        addChatMsg('المساعد', '❓ مش شايف الكود - صوّر أقرب أو اكتبه يدوي', 'bot');
-        showError('❌ مش شايف الكود');
-        isAnalyzing = false;
-        return;
-      }
+      showLoading(false);
+      addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+      showError('❌ مش شايف كود ذاكرة');
+      isAnalyzing = false;
+      return;
     }
 
     // ===== حفظ النتيجة في الكاش =====
@@ -1142,7 +1115,8 @@ async function analyzeImage(base64, previewSrc) {
       }, parsed.company);
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
-      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + ' - لو غلطت قولي الصح', 'bot');
+      var sourceInfo = parsed.suggestion ? ' (تصحيح ذكي: ' + parsed.suggestion + ')' : '';
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - لو غلطت قولي الصح', 'bot');
       isAnalyzing = false;
       if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
