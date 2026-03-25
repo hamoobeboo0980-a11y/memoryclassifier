@@ -198,29 +198,77 @@ function detectCompany(code) {
 // API Endpoint - المنطق الجديد
 // ═══════════════════════════════════════════════════════════════
 
-// كاش النتائج - ملف JSON دائم عشان ميتمسحش لو السيرفر اتعمله restart
-const CACHE_FILE = path.join(__dirname, 'cache.json');
+// ═══════════════════════════════════════════════════════════════
+// كاش النتائج - JSONBin سحابي عشان ميتمسحش لو السيرفر اتعمله restart
+// ═══════════════════════════════════════════════════════════════
+const JBIN_MASTER = '$2a$10$J2Cn/5MK2uANpg4KJ85Na.3zUuauEK0fl5tP.2dPNreOFJLrTGfJ2';
+const JBIN_CACHE_ID = '69c3b790b7ec241ddc9fc484'; // bin خاص بكاش السيرفر
 let resultCache = {};
+let cacheLoaded = false;
+let savePending = false; // عشان نمنع الحفظ المتكرر
+let saveTimer = null;
 
-// تحميل الكاش من الملف لما السيرفر يشتغل
-try {
-    if (fs.existsSync(CACHE_FILE)) {
-        resultCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-        console.log('تم تحميل الكاش:', Object.keys(resultCache).length, 'كود');
-    }
-} catch (e) {
-    console.error('خطأ تحميل الكاش:', e.message);
-    resultCache = {};
-}
-
-// حفظ الكاش في الملف (بيتعمل كل ما نضيف كود جديد)
-function saveCache() {
+// تحميل الكاش من JSONBin لما السيرفر يشتغل
+async function loadCacheFromCloud() {
     try {
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(resultCache, null, 2), 'utf8');
+        const res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_CACHE_ID + '/latest', {
+            headers: { 'X-Master-Key': JBIN_MASTER }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        resultCache = (data.record && data.record.cache) ? data.record.cache : {};
+        cacheLoaded = true;
+        console.log('☁️ تم تحميل الكاش من السحابة:', Object.keys(resultCache).length, 'كود');
     } catch (e) {
-        console.error('خطأ حفظ الكاش:', e.message);
+        console.error('خطأ تحميل الكاش من السحابة:', e.message);
+        // لو فشل - نحاول نحمل من الملف المحلي كـ fallback
+        try {
+            const CACHE_FILE = path.join(__dirname, 'cache.json');
+            if (fs.existsSync(CACHE_FILE)) {
+                resultCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+                console.log('📁 تم تحميل الكاش من الملف المحلي (fallback):', Object.keys(resultCache).length, 'كود');
+            }
+        } catch (e2) {
+            console.error('خطأ تحميل الكاش المحلي:', e2.message);
+        }
+        resultCache = resultCache || {};
+        cacheLoaded = true;
     }
 }
+
+// حفظ الكاش على JSONBin (مع debounce عشان ما نبعتش طلبات كتير)
+function saveCache() {
+    // حفظ محلي فوراً كـ backup
+    try {
+        const CACHE_FILE = path.join(__dirname, 'cache.json');
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(resultCache, null, 2), 'utf8');
+    } catch (e) { /* مش مهم لو فشل */ }
+    
+    // Debounce - لو فيه حفظ معلق، أجّله 3 ثواني
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+        if (savePending) return; // لو فيه حفظ شغال، استنى
+        savePending = true;
+        try {
+            const res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_CACHE_ID, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Master-Key': JBIN_MASTER
+                },
+                body: JSON.stringify({ cache: resultCache })
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            console.log('☁️ تم حفظ الكاش على السحابة:', Object.keys(resultCache).length, 'كود');
+        } catch (e) {
+            console.error('خطأ حفظ الكاش على السحابة:', e.message);
+        }
+        savePending = false;
+    }, 3000); // 3 ثواني debounce
+}
+
+// تحميل الكاش عند بدء السيرفر
+loadCacheFromCloud();
 
 function getCached(code) {
     if (!code) return null;
