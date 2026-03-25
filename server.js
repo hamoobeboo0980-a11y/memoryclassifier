@@ -144,8 +144,8 @@ function detectCompany(code) {
     if (u.startsWith('THG')) return 'Toshiba';
     if (u.startsWith('SDIN') || u.startsWith('SDAD')) return 'SanDisk';
     if (u.startsWith('JW') || u.startsWith('JZ')) return 'Micron';
-    if (u.startsWith('TY')) return 'YMEC';
-    if (u.startsWith('08EMCP') || u.startsWith('16EMCP')) return 'UNIC';
+    if (u.startsWith('YMEC') || u.startsWith('TY')) return 'YMEC';
+    if (u.startsWith('08EMCP') || u.startsWith('16EMCP') || u.startsWith('16ENCP')) return 'UNIC';
     return 'Unknown';
 }
 
@@ -153,48 +153,89 @@ function detectCompany(code) {
 // API Endpoint - المنطق الجديد
 // ═══════════════════════════════════════════════════════════════
 
-// دالة البحث التقريبي - بتدور على أقرب كود شبيه لو الكود الأصلي مش موجود
+// كاش النتائج - عشان منبعتش نفس الكود لـ Gemini كل مرة
+const resultCache = new Map();
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 ساعة
+
+function getCached(code) {
+    if (!code) return null;
+    const key = code.toUpperCase().trim();
+    const entry = resultCache.get(key);
+    if (entry && (Date.now() - entry.time) < CACHE_TTL) {
+        console.log('من الكاش:', key);
+        return entry.result;
+    }
+    if (entry) resultCache.delete(key); // خلص وقته
+    return null;
+}
+
+function setCache(code, result) {
+    if (!code || !result) return;
+    resultCache.set(code.toUpperCase().trim(), { result, time: Date.now() });
+}
+
+// دالة البحث التقريبي - بتدور على أقرب كود شبيه مع وزن الأخطاء الشائعة
 function fuzzySearchInDB(code) {
     if (!code || code.length < 4) return null;
     const upper = code.toUpperCase().trim();
     let bestMatch = null;
-    let bestDist = 3; // أقصى فرق مسموح: 2 حرف
+    let bestDist = 3; // أقصى فرق مسموح: 2
 
-    function levenshtein(a, b) {
+    // الأخطاء الشائعة في قراءة الشرائح - وزنها 0.3 بدل 1
+    const COMMON_SWAPS = {
+        'O': '0', '0': 'O',
+        'I': '1', '1': 'I',
+        'B': '8', '8': 'B',
+        'S': '5', '5': 'S',
+        'G': '6', '6': 'G',
+        'Z': '2', '2': 'Z',
+        'D': '0', 'Q': 'O'
+    };
+
+    function weightedDistance(a, b) {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
+        if (Math.abs(a.length - b.length) > 3) return 999; // فرق الطول كبير - مش نفس الكود
+        
         const matrix = [];
         for (let i = 0; i <= b.length; i++) matrix[i] = [i];
         for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
         for (let i = 1; i <= b.length; i++) {
             for (let j = 1; j <= a.length; j++) {
-                if (b[i-1] === a[j-1]) matrix[i][j] = matrix[i-1][j-1];
-                else matrix[i][j] = Math.min(matrix[i-1][j-1]+1, matrix[i][j-1]+1, matrix[i-1][j]+1);
+                if (b[i-1] === a[j-1]) {
+                    matrix[i][j] = matrix[i-1][j-1];
+                } else {
+                    // لو خطأ شائع - وزنه 0.3 بس
+                    const isCommon = COMMON_SWAPS[b[i-1]] === a[j-1] || COMMON_SWAPS[a[j-1]] === b[i-1];
+                    const cost = isCommon ? 0.3 : 1;
+                    matrix[i][j] = Math.min(
+                        matrix[i-1][j-1] + cost,  // استبدال
+                        matrix[i][j-1] + 1,        // إضافة
+                        matrix[i-1][j] + 1          // حذف
+                    );
+                }
             }
         }
         return matrix[b.length][a.length];
     }
 
-    // دور في العادي
-    for (const [capacity, codes] of Object.entries(NORMAL_DB)) {
-        for (const c of codes) {
-            const dist = levenshtein(upper, c.toUpperCase());
-            if (dist > 0 && dist < bestDist) {
-                bestDist = dist;
-                bestMatch = { code: c, storage: capacity.split('+')[0], type: 'عادي', company: detectCompany(c), originalRead: code, distance: dist };
+    function searchIn(db, type) {
+        for (const [capacity, codes] of Object.entries(db)) {
+            for (const c of codes) {
+                const dist = weightedDistance(upper, c.toUpperCase());
+                if (dist > 0 && dist < bestDist) {
+                    bestDist = dist;
+                    const storage = type === 'عادي' ? capacity.split('+')[0] : capacity;
+                    bestMatch = { code: c, storage, type, company: detectCompany(c), originalRead: code, distance: dist };
+                }
             }
         }
     }
-    // دور في الزجاجي
-    for (const [size, codes] of Object.entries(EMMC_DB)) {
-        for (const c of codes) {
-            const dist = levenshtein(upper, c.toUpperCase());
-            if (dist > 0 && dist < bestDist) {
-                bestDist = dist;
-                bestMatch = { code: c, storage: size, type: 'زجاجي', company: detectCompany(c), originalRead: code, distance: dist };
-            }
-        }
-    }
+
+    // دور في كل الجداول
+    searchIn(NORMAL_DB, 'عادي');
+    searchIn(EMMC_DB, 'زجاجي');
+    searchIn(MICRON_DB, 'زجاجي');
     return bestMatch;
 }
 
@@ -274,6 +315,43 @@ app.post('/api/analyze', async (req, res) => {
 - الحرف O والرقم 0 بيتلخبطوا - في الأكواد غالباً بيكون رقم 0
 - الحرف I والرقم 1 بيتلخبطوا - في الأكواد غالباً بيكون حرف I
 - الحرف B والرقم 8 بيتلخبطوا
+
+=== معلومات تفكيك الأكواد (مرجع خبرة) ===
+
+Samsung KM (عادي BGA):
+- الحرف اللي قبل 000/100/200/600/700/800/900 بيحدد المساحة: N=8GB, E=16GB, X/D=32GB, C/H/P=64GB, G/V=128GB, F/S=256GB
+- M = فيه RAM / L = مفيش RAM
+- RAM: S/2=1GB, 6=1.5GB, K/1/3=2GB, A/B/8=3GB, D/4=4GB, C/J=6-8GB
+- اللاحقة: 100/600=EMMC 5.0-5.1, 700/800=UFS 2.1, 900=UFS 3.1
+
+Samsung KLM (زجاجي EMMC):
+- الحرف الخامس بيحدد المساحة: A=16GB, B=32GB, C=64GB, D=128GB, E=256GB, F=512GB
+- M = EMMC
+
+Samsung KLU (زجاجي UFS):
+- الحرف الخامس بيحدد المساحة: 4=4GB, 8=8GB, A=16GB, B=32GB, C=64GB, D=128GB, E=256GB, F=512GB, G=1TB
+- U = UFS
+- اللاحقة: 3/4=EMMC, B/C=UFS 2.x, D/E=UFS 3.x
+
+SK Hynix (عادي):
+- H9 = EMCP (عادي BGA)
+- الرقمان 5-6 بيحددوا المساحة: 17/18/19=16GB, 26/27=32GB, 52/53=64GB, 16=128GB, 21/22=256GB
+- BGA: DP=153, TP=162, TQ=221/529, HP=254, HQ=254 UFS
+- RAM: A4=512MB, A8=1GB, AB=2GB, AD=3GB, AC=4GB, AE=6GB
+
+SK Hynix (زجاجي):
+- H26 = EMMC (زجاجي)
+- H28 = UFS (زجاجي)
+
+Toshiba THG (زجاجي):
+- الحرفان 7-8: G7=16GB, G8=32GB, G9=64GB, T0=128GB, T1=256GB, T2=512GB
+
+YMEC (زجاجي):
+- الحرف الخامس بعد YMEC: 6/G=32GB, 7=64GB, 8/B=128GB, 9=256GB
+
+UNIC (زجاجي):
+- 08EMCP = 8GB, 16EMCP = 16GB
+- الرقم بعد EMCP: 05G=32GB, 06G=64GB, 07G=128GB
 ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس ما لقيناهوش في الجداول. ممكن تكون قرأته غلط. حاول تقرأه تاني بدقة أكبر.' : ''}
 
 ارجع الكود فقط كنص خام. لو مش شايف شريحة ذاكرة خالص، ارجع: NOT_FOUND`;
@@ -368,13 +446,24 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
 // دالة البحث الموحدة - بتدور في كل المصادر
 function lookupCode(code, learnedCodes) {
     const cleanCode = code.replace(/[.,\s]+$/g, '').trim();
+    const upperClean = cleanCode.toUpperCase();
     
-    // 1. تصحيحات المستخدم (أعلى أولوية)
+    // شيك الكاش الأول
+    const cached = getCached(cleanCode);
+    if (cached) return cached;
+    
+    // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
-            if (item.corrected && cleanCode.toUpperCase().includes(item.code.toUpperCase())) {
-                console.log('لقيته في التصحيحات:', item.code);
-                return { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+            if (item.corrected && item.code && item.code.length >= 4) {
+                const itemUpper = item.code.toUpperCase();
+                // مطابقة دقيقة: الكود المقروء يبدأ بالكود المتعلم أو العكس
+                if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
+                    console.log('لقيته في التصحيحات:', item.code);
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+                    setCache(cleanCode, result);
+                    return result;
+                }
             }
         }
     }
@@ -383,15 +472,21 @@ function lookupCode(code, learnedCodes) {
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
+        setCache(cleanCode, dbResult);
         return dbResult;
     }
     
-    // 3. الأكواد المتعلمة
+    // 3. الأكواد المتعلمة - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
-            if (!item.corrected && cleanCode.toUpperCase().includes(item.code.toUpperCase())) {
-                console.log('لقيته في المتعلم:', item.code);
-                return { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+            if (!item.corrected && item.code && item.code.length >= 4) {
+                const itemUpper = item.code.toUpperCase();
+                if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
+                    console.log('لقيته في المتعلم:', item.code);
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+                    setCache(cleanCode, result);
+                    return result;
+                }
             }
         }
     }
