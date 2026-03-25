@@ -1073,10 +1073,22 @@ async function analyzeImage(base64, previewSrc) {
     });
 
     if (!geminiRes.ok) {
-      showLoading(false);
-      showError('❌ فشل التحليل - تأكد من الرصيد');
-      isAnalyzing = false;
-      return;
+      // جرب مرة تانية قبل ما تفشل
+      console.log('First attempt failed, retrying...');
+      var retryAnalyze = await fetch('/api/analyze', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned })
+      });
+      if (!retryAnalyze.ok) {
+        var errData = {};
+        try { errData = await retryAnalyze.json(); } catch(e){}
+        showLoading(false);
+        showError('❌ فشل التحليل - ' + (errData.error || 'جرب تاني'));
+        isAnalyzing = false;
+        return;
+      }
+      geminiRes = retryAnalyze;
     }
 
     var parsed = await geminiRes.json();

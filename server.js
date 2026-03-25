@@ -274,8 +274,13 @@ app.post('/api/analyze', async (req, res) => {
         res.json(parsed);
 
     } catch (error) {
-        console.error("Error:", error);
-        res.status(500).json({ error: error.message });
+        console.error("Analyze error:", error.message || error);
+        let errMsg = 'خطأ في التحليل';
+        if (error.message && error.message.includes('quota')) errMsg = 'الرصيد خلص - جرب بعدين';
+        else if (error.message && error.message.includes('size')) errMsg = 'الصورة كبيرة - صور أقرب';
+        else if (error.message && error.message.includes('SAFETY')) errMsg = 'Gemini رفض الصورة - جرب صورة تانية';
+        else if (error.message && error.message.includes('timeout')) errMsg = 'الوقت خلص - جرب تاني';
+        res.status(500).json({ error: errMsg });
     }
 });
 
