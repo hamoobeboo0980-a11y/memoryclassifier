@@ -1825,33 +1825,99 @@ async function toggleFlash() {
 
 
 var imageCapture = null; // ImageCapture instance
+var bestCameraId = null; // أحسن كاميرا (بيتحفظ بعد أول مرة)
+
+// اختيار أحسن كاميرا (أعلى دقة) - بيتنفذ مرة واحدة بس
+async function findBestCamera() {
+  if (bestCameraId) return bestCameraId; // محفوظ من قبل
+  try {
+    // طلب إذن الكاميرا عشان نشوف الأسماء
+    var temp = await navigator.mediaDevices.getUserMedia({ video: true });
+    temp.getTracks().forEach(function(t){ t.stop(); });
+    
+    var devices = await navigator.mediaDevices.enumerateDevices();
+    var cams = devices.filter(function(d){ return d.kind === 'videoinput'; });
+    
+    if (cams.length <= 1) return null; // كاميرا واحدة - مش محتاجين نختار
+    
+    console.log('📷 عدد الكاميرات: ' + cams.length);
+    var best = null;
+    var bestRes = 0;
+    
+    for (var i = 0; i < cams.length; i++) {
+      try {
+        var ts = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: cams[i].deviceId } }
+        });
+        var track = ts.getVideoTracks()[0];
+        var caps = track.getCapabilities ? track.getCapabilities() : {};
+        var maxW = (caps.width && caps.width.max) ? caps.width.max : 0;
+        var label = cams[i].label || ('Camera ' + (i+1));
+        console.log('📹 ' + label + ' → max: ' + maxW + 'px');
+        
+        if (maxW > bestRes) {
+          bestRes = maxW;
+          best = cams[i].deviceId;
+        }
+        ts.getTracks().forEach(function(t){ t.stop(); });
+      } catch(e) {
+        console.log('⚠️ مش قادر أختبر: ' + (cams[i].label || i));
+      }
+    }
+    
+    if (best) {
+      bestCameraId = best;
+      console.log('✅ تم اختيار الكاميرا الأعلى دقة: ' + bestRes + 'px');
+    }
+    return best;
+  } catch(e) {
+    console.log('⚠️ enumerateDevices فشل: ' + e.message);
+    return null;
+  }
+}
 
 async function startCamera() {
   if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(x){} stream = null; }
   imageCapture = null;
 
-  // محاولة 1: 4K + كاميرا خلفية (exact)
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { exact: 'environment' },
-        width: { ideal: 3840, max: 4096 },
-        height: { ideal: 2160, max: 4096 },
-        focusMode: 'continuous'
-      },
-      audio: false
-    });
-  } catch(e) { stream = null; }
+  // اختيار أحسن كاميرا (أول مرة بس)
+  var camId = await findBestCamera();
 
-  // محاولة 2: 1080p + كاميرا خلفية (تفضيل)
+  // محاولة 1: الكاميرا المختارة بأعلى دقة
+  if (camId) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: { exact: camId },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          focusMode: 'continuous'
+        },
+        audio: false
+      });
+    } catch(e) { stream = null; }
+  }
+
+  // محاولة 2: facingMode environment + 4K
   if (!stream) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          facingMode: { exact: 'environment' },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          focusMode: 'continuous'
         },
+        audio: false
+      });
+    } catch(e) { stream = null; }
+  }
+
+  // محاولة 3: facingMode environment + 1080p
+  if (!stream) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       });
     } catch(e) { stream = null; }
@@ -1872,24 +1938,23 @@ async function startCamera() {
     });
   }
 
-  // تفعيل ImageCapture لو متاح (صورة بدقة الكاميرا الكاملة)
+  // تفعيل ImageCapture لو متاح
   try {
     if ('ImageCapture' in window) {
       var track = stream.getVideoTracks()[0];
       var ic = new ImageCapture(track);
-      await ic.grabFrame(); // اختبار
+      await ic.grabFrame();
       imageCapture = ic;
-      console.log('✨ ImageCapture شغال - هياخد صور بدقة الكاميرا الكاملة');
+      console.log('✨ ImageCapture شغال');
     }
   } catch(e) {
     imageCapture = null;
-    console.log('ImageCapture مش متاح - هيستخدم Canvas');
   }
 
   // عرض الدقة الفعلية
   try {
-    var settings = stream.getVideoTracks()[0].getSettings();
-    console.log('📹 دقة الكاميرا: ' + settings.width + 'x' + settings.height);
+    var s = stream.getVideoTracks()[0].getSettings();
+    console.log('📹 دقة الكاميرا: ' + s.width + 'x' + s.height);
   } catch(e) {}
 
   return true;
