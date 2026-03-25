@@ -824,7 +824,7 @@
   <!-- Camera Section -->
   <div class="camera-section">
     <div class="camera-wrapper" id="cameraWrapper">
-      <video id="video" autoplay playsinline muted></video>
+      <video id="video" autoplay playsinline muted onclick="tapCapture()"></video>
       <canvas id="canvas"></canvas>
       <div class="cam-overlay" id="overlay">
         <div class="target-frame" id="targetFrame">
@@ -852,11 +852,11 @@
     </div>
     <!-- Toggle row -->
     <div class="cam-mode-row">
-      <span class="cam-mode-label" id="labelNative">📱 كاميرا أصلية</span>
+      <span class="cam-mode-label" id="labelNative">📱 فلاش + لمسة</span>
       <div class="toggle-switch on" id="camModeToggle" onclick="toggleCamMode()">
         <div class="toggle-knob"></div>
       </div>
-      <span class="cam-mode-label active" id="labelBrowser">🌐 كاميرا الموقع</span>
+      <span class="cam-mode-label active" id="labelBrowser">🌐 تلقائي + لمسة</span>
     </div>
     <!-- Buttons row -->
     <div style="display:flex;gap:6px;padding:8px 10px;background:var(--card)">
@@ -1583,6 +1583,8 @@ function confirmResult() {
   document.getElementById('correctionForm').style.display = 'none';
   addChatMsg('المساعد', '✅ تم حفظ ' + currentCode + ' = ' + lastParsed.storage + 'GB ' + lastParsed.type, 'bot');
   showToast('تم الحفظ ✓');
+  // حفظ تلقائي على السحابة
+  autoSaveToCloud();
 }
 
 function showCorrectionForm() {
@@ -1626,6 +1628,8 @@ function submitCorrection() {
   document.getElementById('correctionForm').style.display = 'none';
   addChatMsg('المساعد', '📝 تم التصحيح: ' + currentCode + ' = ' + storage + 'GB ' + type, 'bot');
   showToast('تم التصحيح ✓');
+  // حفظ تلقائي على السحابة
+  autoSaveToCloud();
 }
 
 function showToast(msg) {
@@ -1649,15 +1653,12 @@ function nextPhoto() {
   // سكرول لفوق عشان الكاميرا تبقى قدامه
   window.scrollTo({top: 0, behavior: 'smooth'});
   // حسب الوضع المختار
-  if (camMode === 'native') {
-    mainAction();
+  if (stream && cameraActive) {
+    // الكاميرا شغالة → ابدأ تلقائي لو browser mode
+    if (camMode === 'browser') setTimeout(startAutoAnalysis, 500);
   } else {
-    // كاميرا الموقع: لو شغالة → ابدأ التقاط تلقائي، لو مش شغالة → شغلها
-    if (stream && cameraActive) {
-      setTimeout(startAutoAnalysis, 500);
-    } else {
-      toggleBrowserCamera();
-    }
+    // الكاميرا مش شغالة → شغلها
+    toggleBrowserCamera();
   }
 }
 
@@ -1667,6 +1668,18 @@ function nextPhoto() {
 var JBIN_MASTER = '$2a$10$J2Cn/5MK2uANpg4KJ85Na.3zUuauEK0fl5tP.2dPNreOFJLrTGfJ2';
 var JBIN_ID = '69ae8defd0ea881f40ff7982'; // ID ثابت - مش بيتغير
 var cloudLearned = [];
+
+// ===== حفظ تلقائي على السحابة عند صح/تصحيح =====
+async function autoSaveToCloud() {
+  try {
+    var local = [];
+    try { var s = localStorage.getItem('ic_learned'); if(s) local = JSON.parse(s); } catch(e){}
+    if (local.length > 0) {
+      await jbinSave(local);
+      console.log('☁️ تم الحفظ على السحابة تلقائي - ' + local.length + ' سجل');
+    }
+  } catch(e) { console.log('autoSaveToCloud error:', e); }
+}
 
 async function jbinLoad() {
   try {
@@ -1744,28 +1757,22 @@ function toggleCamMode() {
     tog.classList.remove('on');
     document.getElementById('labelNative').classList.add('active');
     document.getElementById('labelBrowser').classList.remove('active');
-    document.getElementById('btnMain').innerHTML = '📸 صوّر شريحة';
-    document.getElementById('btnFlash').style.display = 'none';
-    stopCamera();
-    cameraActive = false;
+    document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
+    // الكاميرا الأصلية = نفس الفيديو بس بدون تلقائي + فلاش دايم
+    stopAutoAnalysis();
   } else {
     camMode = 'browser';
     tog.classList.add('on');
     document.getElementById('labelBrowser').classList.add('active');
     document.getElementById('labelNative').classList.remove('active');
     document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
-    document.getElementById('btnFlash').style.display = '';
+    // لو الكاميرا شغالة → ابدأ تلقائي
+    if (stream && cameraActive) setTimeout(startAutoAnalysis, 500);
   }
 }
 
 async function mainAction() {
-  if (camMode === 'native') {
-    // محاولة تشغيل الفلاش تلقائي قبل التصوير
-    await enableNativeFlash();
-    document.getElementById('nativeCamInput').click();
-  } else {
-    toggleBrowserCamera();
-  }
+  toggleBrowserCamera();
 }
 
 // ===== كاميرا المتصفح + التقاط تلقائي ذكي =====
@@ -1782,7 +1789,13 @@ async function toggleBrowserCamera() {
       document.getElementById('btnMain').innerHTML = '⏹ إيقاف';
       document.getElementById('btnFlash').style.display = '';
       cameraActive = true;
-      setTimeout(startAutoAnalysis, 1500);
+      if (camMode === 'native') {
+        // كاميرا أصلية: فلاش دايم + لمسة = تصوير
+        try { await toggleFlash(); } catch(e){}
+      } else {
+        // كاميرا الموقع: تلقائي + لمسة = تصوير
+        setTimeout(startAutoAnalysis, 1500);
+      }
     }
   }
 }
@@ -1955,6 +1968,19 @@ function analyzeFrame() {
     stopAutoAnalysis();
     captureAndAnalyze();
   }
+}
+
+// ===== لمسة الشاشة = تصوير فوري =====
+function tapCapture() {
+  if (!stream || !cameraActive || isAnalyzing) return;
+  stopAutoAnalysis();
+  // تأثير بصري - فلاش أبيض
+  var wrapper = document.getElementById('cameraWrapper');
+  if (wrapper) {
+    wrapper.style.opacity = '0.3';
+    setTimeout(function(){ wrapper.style.opacity = '1'; }, 150);
+  }
+  captureAndAnalyze();
 }
 
 function captureAndAnalyze() {
