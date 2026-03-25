@@ -765,6 +765,31 @@
 
   .toast.show { transform: translateX(-50%) translateY(0); }
 
+  /* Camera mode toggle */
+  .cam-mode-row {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 6px 10px; background: var(--card); border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+  .cam-mode-label { font-weight: 600; }
+  .cam-mode-label.active { color: var(--accent); }
+  .toggle-switch {
+    position: relative; width: 44px; height: 24px;
+    background: rgba(0,212,255,0.2); border-radius: 12px;
+    cursor: pointer; transition: background 0.3s;
+  }
+  .toggle-switch.on { background: rgba(255,107,53,0.3); }
+  .toggle-knob {
+    position: absolute; top: 2px; left: 2px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); transition: left 0.3s;
+    box-shadow: 0 0 6px rgba(0,212,255,0.5);
+  }
+  .toggle-switch.on .toggle-knob {
+    left: 22px; background: var(--accent2);
+    box-shadow: 0 0 6px rgba(255,107,53,0.5);
+  }
+
   /* Image preview */
   .img-preview {
     width: 100%;
@@ -825,20 +850,29 @@
         <div id="detectedCodeOverlay" style="font-size:13px;color:#aaa;letter-spacing:1px"></div>
       </div>
     </div>
+    <!-- Toggle row -->
+    <div class="cam-mode-row">
+      <span class="cam-mode-label" id="labelNative">📱 كاميرا أصلية</span>
+      <div class="toggle-switch on" id="camModeToggle" onclick="toggleCamMode()">
+        <div class="toggle-knob"></div>
+      </div>
+      <span class="cam-mode-label active" id="labelBrowser">🌐 كاميرا الموقع</span>
+    </div>
     <!-- Buttons row -->
-    <div style="display:flex;gap:6px;padding:10px;background:var(--card)">
-      <button class="btn-capture" id="btnCamToggle" onclick="toggleCamera()" style="flex:2;font-size:14px;padding:10px 4px">
+    <div style="display:flex;gap:6px;padding:8px 10px;background:var(--card)">
+      <button class="btn-capture" id="btnMain" onclick="mainAction()" style="flex:3;font-size:14px;padding:10px 4px">
         📷 تشغيل الكاميرا
       </button>
-      <label class="btn-upload" style="flex:1;font-size:12px;padding:10px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
-        📸 كاميرا
-        <input type="file" accept="image/*" capture="environment" style="display:none" onchange="captureNative(event)">
-      </label>
-      <label class="btn-upload" style="flex:1;font-size:12px;padding:10px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px">
+      <button class="btn-upload" id="btnFlash" onclick="toggleFlash()" style="font-size:16px;padding:10px 12px;cursor:pointer;display:none">
+        🔦
+      </button>
+      <label class="btn-upload" style="font-size:12px;padding:10px 12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
         🖼 معرض
         <input type="file" accept="image/*" style="display:none" onchange="uploadImage(event)">
       </label>
     </div>
+    <!-- Hidden native camera input -->
+    <input type="file" id="nativeCamInput" accept="image/*" capture="environment" style="display:none" onchange="captureNative(event)">
   </div>
 
   <!-- Stats Bar -->
@@ -969,6 +1003,8 @@ let currentCode = '';
 let stream = null;
 let isAnalyzing = false;
 let cameraActive = false;
+var flashActive = false;
+var camMode = 'browser'; // 'browser' or 'native'
 var codeCache = {}; // كاش للبحث السريع
 var prevFrame = null;
 var autoProgress = 0;
@@ -1605,13 +1641,8 @@ function nextPhoto() {
   isAnalyzing = false;
   autoProgress = 0;
   prevFrame = null;
-  // لو الكاميرا شغالة - ابدأ التقاط تلقائي تاني
-  if (stream && cameraActive) {
-    setTimeout(startAutoAnalysis, 500);
-  } else {
-    // لو الكاميرا مش شغالة - شغلها تلقائي
-    toggleCamera();
-  }
+  // حسب الوضع المختار
+  mainAction();
 }
 
 // API Key is on the server - no client key needed
@@ -1689,21 +1720,88 @@ jbinLoad();
 
 // Start
 
+// ===== Toggle وضع الكاميرا =====
+function toggleCamMode() {
+  var tog = document.getElementById('camModeToggle');
+  if (camMode === 'browser') {
+    camMode = 'native';
+    tog.classList.remove('on');
+    document.getElementById('labelNative').classList.add('active');
+    document.getElementById('labelBrowser').classList.remove('active');
+    document.getElementById('btnMain').innerHTML = '📸 صوّر شريحة';
+    document.getElementById('btnFlash').style.display = 'none';
+    stopCamera();
+    cameraActive = false;
+  } else {
+    camMode = 'browser';
+    tog.classList.add('on');
+    document.getElementById('labelBrowser').classList.add('active');
+    document.getElementById('labelNative').classList.remove('active');
+    document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
+    document.getElementById('btnFlash').style.display = '';
+  }
+}
+
+async function mainAction() {
+  if (camMode === 'native') {
+    // محاولة تشغيل الفلاش تلقائي قبل التصوير
+    await enableNativeFlash();
+    document.getElementById('nativeCamInput').click();
+  } else {
+    toggleBrowserCamera();
+  }
+}
+
 // ===== كاميرا المتصفح + التقاط تلقائي ذكي =====
-async function toggleCamera() {
+async function toggleBrowserCamera() {
   if (cameraActive) {
     stopCamera();
-    document.getElementById('btnCamToggle').innerHTML = '📷 تشغيل الكاميرا';
-    document.getElementById('btnCamToggle').style.background = '';
+    document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
+    document.getElementById('btnFlash').style.display = 'none';
     cameraActive = false;
+    flashActive = false;
   } else {
     var ok = await startCamera();
     if (ok) {
-      document.getElementById('btnCamToggle').innerHTML = '⏹ إيقاف';
-      document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
+      document.getElementById('btnMain').innerHTML = '⏹ إيقاف';
+      document.getElementById('btnFlash').style.display = '';
       cameraActive = true;
       setTimeout(startAutoAnalysis, 1500);
     }
+  }
+}
+
+// ===== فلاش =====
+async function toggleFlash() {
+  if (!stream) return;
+  try {
+    var track = stream.getVideoTracks()[0];
+    flashActive = !flashActive;
+    await track.applyConstraints({ advanced: [{ torch: flashActive }] });
+    document.getElementById('btnFlash').style.background = flashActive ? 'rgba(255,200,0,0.3)' : '';
+    document.getElementById('btnFlash').style.borderColor = flashActive ? '#ffcc00' : '';
+  } catch(e) {
+    addChatMsg('المساعد', '⚠️ الفلاش مش متاح على الجهاز ده', 'bot');
+    flashActive = false;
+  }
+}
+
+// تشغيل الفلاش للكاميرا الأصلية (محاولة تلقائية)
+async function enableNativeFlash() {
+  try {
+    var s = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' }, audio: false });
+    var t = s.getVideoTracks()[0];
+    await t.applyConstraints({ advanced: [{ torch: true }] });
+    // نخلي الفلاش شغال لحد ما اليوزر يصور
+    window._nativeFlashStream = s;
+    return true;
+  } catch(e) { return false; }
+}
+
+function stopNativeFlash() {
+  if (window._nativeFlashStream) {
+    window._nativeFlashStream.getTracks().forEach(function(t){t.stop();});
+    window._nativeFlashStream = null;
   }
 }
 
@@ -1863,11 +1961,12 @@ function updateAutoUI(progress, msg) {
   if (el && msg) el.textContent = msg;
 }
 
-// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية (بديل) =====
+// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية =====
 function captureNative(event) {
   var file = event.target.files[0];
   if (!file) return;
   stopAutoAnalysis();
+  stopNativeFlash();
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
