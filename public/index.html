@@ -45,6 +45,13 @@
   .led.active {
     box-shadow: 0 0 6px 2px currentColor;
   }
+  .led.scanning-led {
+    animation: ledPulse 0.6s ease-in-out infinite;
+  }
+  @keyframes ledPulse {
+    0%, 100% { box-shadow: 0 0 6px 2px currentColor; opacity: 1; }
+    50% { box-shadow: 0 0 12px 4px currentColor; opacity: 0.7; }
+  }
   .led.dimmed {
     opacity: 0.3;
   }
@@ -1045,6 +1052,49 @@ function lightLED(stepName) {
   }
 }
 
+// محاكاة اللمبات أثناء التحليل - بتنور واحدة واحدة
+var ledAnimTimer = null;
+var ledAnimStep = 0;
+// الخطوات الأولى (كاش/تصحيحات/جداول/متعلم) بتعدي بسرعة، الباقي ببطء
+var LED_ANIM_DELAYS = [300, 300, 400, 400, 1500, 2500, 1500, 1500];
+var LED_ANIM_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini'];
+
+function startLEDAnimation() {
+  stopLEDAnimation();
+  ledAnimStep = 0;
+  animateNextLED();
+}
+
+function animateNextLED() {
+  if (ledAnimStep >= LED_ANIM_STEPS.length) return;
+  var step = LED_ANIM_STEPS[ledAnimStep];
+  // نور اللمبة الحالية واطفي اللي قبلها
+  LED_ANIM_STEPS.forEach(function(s, i) {
+    var el = document.querySelector('.led[data-step="'+s+'"]');
+    if (!el) return;
+    if (i < ledAnimStep) {
+      el.classList.add('dimmed');
+      el.classList.remove('active','scanning-led');
+    } else if (i === ledAnimStep) {
+      el.classList.add('active','scanning-led');
+      el.classList.remove('dimmed');
+    } else {
+      el.classList.remove('active','dimmed','scanning-led');
+    }
+  });
+  ledAnimStep++;
+  ledAnimTimer = setTimeout(animateNextLED, LED_ANIM_DELAYS[ledAnimStep-1] || 1000);
+}
+
+function stopLEDAnimation() {
+  if (ledAnimTimer) { clearTimeout(ledAnimTimer); ledAnimTimer = null; }
+  // شيل كلاس scanning-led من كل اللمبات
+  LED_ANIM_STEPS.forEach(function(s) {
+    var el = document.querySelector('.led[data-step="'+s+'"]');
+    if (el) el.classList.remove('scanning-led');
+  });
+}
+
 function startScanBar() {
   var bar = document.getElementById('scanBar');
   if (bar) { bar.className = 'progress-bar scanning'; }
@@ -1053,7 +1103,6 @@ function startScanBar() {
 function stopScanBar(success) {
   var bar = document.getElementById('scanBar');
   if (bar) { bar.className = 'progress-bar ' + (success ? 'done' : 'error'); }
-  // ارجع للحالة الطبيعية بعد 3 ثواني
   setTimeout(function() {
     if (bar) bar.className = 'progress-bar';
   }, 3000);
@@ -1200,6 +1249,7 @@ async function analyzeImage(base64, previewSrc) {
   isAnalyzing = true;
   lastBase64 = base64;
   resetLEDs();
+  startLEDAnimation();
   startScanBar();
   showLoading(true);
   showResult(false);
@@ -1225,6 +1275,7 @@ async function analyzeImage(base64, previewSrc) {
     if (!geminiRes.ok) {
       var errData = {};
       try { errData = await geminiRes.json(); } catch(e){}
+      stopLEDAnimation();
       lightLED(errData.step || 'failed');
       stopScanBar(false);
       showLoading(false);
@@ -1237,6 +1288,7 @@ async function analyzeImage(base64, previewSrc) {
     if (!parsed.code) parsed = {code:'', storage:'', type:'', company:''};
     
     // نور اللمبة الصح
+    stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
 
     lastParsed = parsed;
@@ -1247,6 +1299,7 @@ async function analyzeImage(base64, previewSrc) {
 
     // لو ما لقاش كود - السيرفر جرب مرتين (سريعة + بعناية) ومش لاقي
     if (!detectedCode || !isValidCode(detectedCode)) {
+      stopLEDAnimation();
       lightLED('failed');
       stopScanBar(false);
       showLoading(false);
@@ -1290,6 +1343,7 @@ async function analyzeImage(base64, previewSrc) {
     addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
 
   } catch(e) {
+    stopLEDAnimation();
     lightLED('failed');
     stopScanBar(false);
     showLoading(false);

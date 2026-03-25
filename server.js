@@ -468,14 +468,30 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
         res.json(parsed);
 
     } catch (error) {
+        const errText = (error.message || String(error)).toLowerCase();
         console.error("خطأ التحليل:", error.message || error);
         let errMsg = 'خطأ في التحليل';
         let step = 'failed';
-        if (error.message && error.message.includes('quota')) { errMsg = 'الرصيد خلص - جرب بعدين'; step = 'no_credit'; }
-        else if (error.message && error.message.includes('size')) errMsg = 'الصورة كبيرة - صور أقرب';
-        else if (error.message && error.message.includes('SAFETY')) errMsg = 'Gemini رفض الصورة - جرب صورة تانية';
-        else if (error.message && error.message.includes('timeout')) errMsg = 'الوقت خلص - جرب تاني';
-        else errMsg = 'خطأ: ' + (error.message || 'جرب تاني').substring(0, 80);
+        
+        if (errText.includes('resource') && errText.includes('exhaust')) {
+            // Resource exhausted = rate limit أو quota
+            errMsg = 'طلبات كتير - استنى 10 ثواني وجرب تاني';
+            step = 'no_credit';
+        } else if (errText.includes('quota')) {
+            errMsg = 'الرصيد خلص فعلاً - كلم المطور';
+            step = 'no_credit';
+        } else if (errText.includes('429') || errText.includes('rate')) {
+            errMsg = 'طلبات كتير - استنى شوية وجرب تاني';
+            step = 'no_credit';
+        } else if (errText.includes('size') || errText.includes('too large') || errText.includes('payload')) {
+            errMsg = 'الصورة كبيرة - صور أقرب';
+        } else if (errText.includes('safety')) {
+            errMsg = 'Gemini رفض الصورة - جرب صورة تانية';
+        } else if (errText.includes('timeout') || errText.includes('deadline')) {
+            errMsg = 'الوقت خلص - جرب تاني';
+        } else {
+            errMsg = 'خطأ: ' + (error.message || 'جرب تاني').substring(0, 100);
+        }
         res.status(500).json({ error: errMsg, step });
     }
 });
