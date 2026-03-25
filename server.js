@@ -789,6 +789,10 @@ app.get('/api/errors', (req, res) => {
     res.json({ errors: errorLog, total: errorLog.length });
 });
 
+app.get('/api/cache-count', (req, res) => {
+    res.json({ count: Object.keys(resultCache).length });
+});
+
 // ═══════════════════════════════════════════════════════════════
 // Chat API - شات ذكي مع Gemini
 // ═══════════════════════════════════════════════════════════════

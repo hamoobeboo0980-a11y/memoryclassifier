@@ -900,8 +900,8 @@
   <div class="result-card" id="resultCard">
     <div class="result-header">
       <div class="result-status">
-        <div class="status-dot"></div>
-        تم التصنيف
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">تم التصنيف</span>
       </div>
       <div style="font-size:12px;color:var(--muted)" id="resultTime"></div>
     </div>
@@ -1305,8 +1305,20 @@ async function analyzeImage(base64, previewSrc) {
       document.getElementById('correctionForm').style.display = 'none';
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
+      // علامة الكاش
+      var isFromCache = parsed.step && parsed.step.indexOf('cache') !== -1;
+      var dot = document.getElementById('statusDot');
+      var txt = document.getElementById('statusText');
+      if (isFromCache) {
+        if (dot) { dot.style.background = '#00e676'; dot.style.boxShadow = '0 0 12px #00e676'; }
+        if (txt) txt.textContent = '⚡ من الكاش';
+      } else {
+        if (dot) { dot.style.background = '#00ff88'; dot.style.boxShadow = '0 0 8px #00ff88'; }
+        if (txt) txt.textContent = 'تم التصنيف';
+      }
       var sourceInfo = parsed.suggestion ? ' (تصحيح ذكي: ' + parsed.suggestion + ')' : '';
-      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - صح ولا غلط؟', 'bot');
+      var cacheInfo = isFromCache ? ' ⚡من الكاش' : '';
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + cacheInfo + ' - صح ولا غلط؟', 'bot');
       isAnalyzing = false;
       if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
@@ -1564,7 +1576,7 @@ function confirmResult() {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ code: currentCode, storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company, ram: lastParsed.ram || null, step: lastParsed.step })
-  }).catch(function(e){ console.log('confirm err', e); });
+  }).then(function(){ updateCacheCount(); }).catch(function(e){ console.log('confirm err', e); });
   // إخفاء الأزرار وإظهار رسالة
   document.getElementById('confirmActions').style.display = 'none';
   document.getElementById('correctionForm').style.display = 'none';
@@ -1611,7 +1623,7 @@ function submitCorrection() {
       step: (lastParsed && lastParsed.step) || '',
       company: (lastParsed && lastParsed.company) || ''
     })
-  }).catch(function(e){ console.log('correct err', e); });
+  }).then(function(){ updateCacheCount(); }).catch(function(e){ console.log('correct err', e); });
   
   // تحديث العرض
   document.getElementById('storageNum').textContent = storage;
@@ -2166,8 +2178,21 @@ function renderStats() {
     '<span>✅ صح: <b>' + sessionStats.correct + '</b></span>' +
     '<span>❌ غلط: <b>' + sessionStats.wrong + '</b></span>' +
     (sessionStats.corrected ? '<span>🎓 تعلّم: <b>' + sessionStats.corrected + '</b></span>' : '') +
-    (topCompany ? '<span>🏆 الأكثر: <b>' + topCompany + '</b></span>' : '');
+    (topCompany ? '<span>🏆 الأكثر: <b>' + topCompany + '</b></span>' : '') +
+    '<span>☁️ الكاش: <b id="cacheCountNum">' + (window._cacheCount || 0) + '</b></span>';
 }
+
+// تحديث عدد الكاش من السيرفر
+async function updateCacheCount() {
+  try {
+    var r = await fetch('/api/cache-count');
+    var d = await r.json();
+    window._cacheCount = d.count || 0;
+    var el = document.getElementById('cacheCountNum');
+    if (el) el.textContent = window._cacheCount;
+  } catch(e) {}
+}
+updateCacheCount();
 
 // ===== CHAT SYSTEM =====
 var lastBase64 = null;
