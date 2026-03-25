@@ -6,7 +6,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY || "AIzaSyDeWn6mfiB-VP8hxBb878qrJ0K0_OGcGc8");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY || "AIzaSyAbHZibxNq1bPUVHxW8aa8GvPAsMgCyzgQ");
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
