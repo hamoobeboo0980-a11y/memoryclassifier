@@ -419,8 +419,6 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
                     suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code,
                     step: 'fuzzy'
                 };
-                setCache(finalCode, fuzzyResult);
-                setCache(fuzzy.code, fuzzyResult);
                 return res.json(fuzzyResult);
             }
         }
@@ -464,7 +462,6 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
 
         parsed.step = 'gemini';
         console.log('Gemini حلل:', parsed);
-        if (parsed.storage) setCache(codeToAnalyze, parsed);
         res.json(parsed);
 
     } catch (error) {
@@ -514,7 +511,6 @@ function lookupCode(code, learnedCodes) {
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في التصحيحات:', item.code);
                     const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'correction' };
-                    setCache(cleanCode, result);
                     return result;
                 }
             }
@@ -526,7 +522,6 @@ function lookupCode(code, learnedCodes) {
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
         dbResult.step = 'db';
-        setCache(cleanCode, dbResult);
         return dbResult;
     }
     
@@ -538,7 +533,6 @@ function lookupCode(code, learnedCodes) {
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في المتعلم:', item.code);
                     const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'learned' };
-                    setCache(cleanCode, result);
                     return result;
                 }
             }
@@ -547,6 +541,94 @@ function lookupCode(code, learnedCodes) {
     
     return null;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// تأكيد النتيجة (صح) - يحفظ في الكاش
+// ═══════════════════════════════════════════════════════════════
+
+app.post('/api/confirm', (req, res) => {
+    try {
+        const { code, storage, type, company, step } = req.body;
+        if (!code || !storage) return res.status(400).json({ error: 'مفيش كود أو مساحة' });
+        
+        const result = { code, storage, type, company, step, confirmed: true };
+        setCache(code, result);
+        console.log('✅ المستخدم أكد:', code, '=', storage + 'GB', type);
+        res.json({ success: true, message: 'اتحفظ في الكاش' });
+    } catch (error) {
+        console.error('خطأ التأكيد:', error.message);
+        res.status(500).json({ error: 'خطأ في الحفظ' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// تصحيح النتيجة (غلط) - يحفظ التصحيح + يسجل الخطأ
+// ═══════════════════════════════════════════════════════════════
+
+const ERROR_LOG_FILE = path.join(__dirname, 'error_log.json');
+let errorLog = [];
+
+// تحميل سجل الأخطاء
+try {
+    if (fs.existsSync(ERROR_LOG_FILE)) {
+        errorLog = JSON.parse(fs.readFileSync(ERROR_LOG_FILE, 'utf8'));
+        console.log('تم تحميل سجل الأخطاء:', errorLog.length, 'خطأ');
+    }
+} catch (e) {
+    errorLog = [];
+}
+
+function saveErrorLog() {
+    try {
+        fs.writeFileSync(ERROR_LOG_FILE, JSON.stringify(errorLog, null, 2), 'utf8');
+    } catch (e) {
+        console.error('خطأ حفظ سجل الأخطاء:', e.message);
+    }
+}
+
+app.post('/api/correct', (req, res) => {
+    try {
+        const { code, wrongResult, correctStorage, correctType, step } = req.body;
+        if (!code || !correctStorage) return res.status(400).json({ error: 'مفيش كود أو تصحيح' });
+        
+        // حفظ النتيجة الصح في الكاش
+        const correctResult = {
+            code,
+            storage: correctStorage,
+            type: correctType || 'عادي',
+            company: detectCompany(code),
+            step: 'correction',
+            confirmed: true
+        };
+        setCache(code, correctResult);
+        
+        // تسجيل الخطأ للمراجعة
+        const errorEntry = {
+            date: new Date().toISOString(),
+            code,
+            wrongResult: wrongResult || {},
+            correctStorage,
+            correctType: correctType || 'عادي',
+            failedAtStep: step || 'unknown'
+        };
+        errorLog.push(errorEntry);
+        saveErrorLog();
+        
+        console.log('❌ تصحيح:', code, '| كان:', JSON.stringify(wrongResult), '| الصح:', correctStorage + 'GB', correctType);
+        res.json({ success: true, message: 'اتحفظ التصحيح واتسجل الخطأ' });
+    } catch (error) {
+        console.error('خطأ التصحيح:', error.message);
+        res.status(500).json({ error: 'خطأ في الحفظ' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// عرض سجل الأخطاء (للمراجعة)
+// ═══════════════════════════════════════════════════════════════
+
+app.get('/api/errors', (req, res) => {
+    res.json({ errors: errorLog, total: errorLog.length });
+});
 
 // ═══════════════════════════════════════════════════════════════
 // Chat API - شات ذكي مع Gemini

@@ -574,6 +574,44 @@
 
   .btn-next:active { transform: scale(0.97); }
 
+  .confirm-actions {
+    padding: 8px 16px;
+    display: flex;
+    gap: 10px;
+  }
+  .btn-confirm {
+    flex: 1;
+    background: rgba(0,200,80,0.15);
+    border: 1px solid rgba(0,200,80,0.4);
+    border-radius: 10px;
+    color: #00e676;
+    font-family: Cairo, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 9px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-confirm:active { background: rgba(0,200,80,0.3); transform: scale(0.97); }
+  .btn-wrong {
+    flex: 1;
+    background: rgba(255,50,50,0.15);
+    border: 1px solid rgba(255,50,50,0.4);
+    border-radius: 10px;
+    color: #ff5252;
+    font-family: Cairo, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 9px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-wrong:active { background: rgba(255,50,50,0.3); transform: scale(0.97); }
+  .correction-form {
+    padding: 8px 16px 12px;
+    border-top: 1px solid var(--border);
+  }
+
   /* Loading state */
   .loading-card {
     background: var(--card);
@@ -971,6 +1009,21 @@
       <button class="btn-copy" onclick="copyCode()">📋 نسخ الكود</button>
       <button class="btn-next" onclick="nextPhoto()">📷 التالية ←</button>
     </div>
+    <div class="confirm-actions" id="confirmActions" style="display:none">
+      <button class="btn-confirm" onclick="confirmResult()">✅ صح</button>
+      <button class="btn-wrong" onclick="showCorrectionForm()">❌ غلط</button>
+    </div>
+    <div class="correction-form" id="correctionForm" style="display:none">
+      <div style="font-size:13px;color:var(--muted);margin-bottom:8px;text-align:right">اكتب الصح:</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" id="correctStorage" placeholder="المساحة" style="flex:1;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:Cairo;font-size:14px;text-align:center;outline:none" />
+        <select id="correctType" style="flex:1;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 6px;font-family:Cairo;font-size:14px;text-align:center;outline:none">
+          <option value="عادي">عادي</option>
+          <option value="زجاجي">زجاجي</option>
+        </select>
+        <button onclick="submitCorrection()" style="background:linear-gradient(135deg,#ff6b35,#ff3366);border:none;border-radius:8px;color:#fff;padding:8px 14px;font-family:Cairo;font-size:14px;font-weight:700;cursor:pointer">حفظ</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -1309,11 +1362,6 @@ async function analyzeImage(base64, previewSrc) {
       return;
     }
 
-    // ===== حفظ النتيجة في الكاش =====
-    if (detectedCode && parsed.storage && parsed.type) {
-      codeCache[detectedCode.toUpperCase()] = { storage: parsed.storage, type: parsed.type, company: parsed.company };
-    }
-
     // ===== الـ Server رجّع النتيجة مباشرة (storage + type) =====
     if (parsed.storage && parsed.type) {
       stopScanBar(true);
@@ -1324,10 +1372,13 @@ async function analyzeImage(base64, previewSrc) {
         type: parsed.type,
         capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
       }, parsed.company);
+      // إظهار أزرار صح/غلط
+      document.getElementById('confirmActions').style.display = 'flex';
+      document.getElementById('correctionForm').style.display = 'none';
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
       var sourceInfo = parsed.suggestion ? ' (تصحيح ذكي: ' + parsed.suggestion + ')' : '';
-      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - لو غلطت قولي الصح', 'bot');
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - صح ولا غلط؟', 'bot');
       isAnalyzing = false;
       if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
@@ -1338,9 +1389,12 @@ async function analyzeImage(base64, previewSrc) {
     updateStats(parsed.company, false);
     showLoading(false);
     displayResult(detectedCode, null, parsed.company);
+    // إظهار فورم التصحيح مباشرة للكود المجهول
+    document.getElementById('confirmActions').style.display = 'none';
+    document.getElementById('correctionForm').style.display = 'block';
     sessionCount++;
     document.getElementById('sessionCount').textContent = sessionCount;
-    addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
+    addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - اكتب المساحة والنوع', 'bot');
 
   } catch(e) {
     stopLEDAnimation();
@@ -1560,9 +1614,79 @@ function copyCode() {
   });
 }
 
+// ===== تأكيد / تصحيح النتيجة =====
+function confirmResult() {
+  if (!lastParsed || !currentCode) return;
+  // حفظ في الكاش المحلي
+  codeCache[currentCode.toUpperCase()] = { storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company };
+  // إرسال للسيرفر
+  fetch('/api/confirm', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ code: currentCode, storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company, step: lastParsed.step })
+  }).catch(function(e){ console.log('confirm err', e); });
+  // إخفاء الأزرار وإظهار رسالة
+  document.getElementById('confirmActions').style.display = 'none';
+  document.getElementById('correctionForm').style.display = 'none';
+  addChatMsg('المساعد', '✅ تم حفظ ' + currentCode + ' = ' + lastParsed.storage + 'GB ' + lastParsed.type, 'bot');
+  showToast('تم الحفظ ✓');
+}
+
+function showCorrectionForm() {
+  document.getElementById('correctionForm').style.display = 'block';
+  document.getElementById('confirmActions').style.display = 'none';
+  // لو فيه قيم قديمة نعبيها
+  if (lastParsed && lastParsed.storage) {
+    document.getElementById('correctStorage').value = '';
+    document.getElementById('correctType').value = lastParsed.type || 'عادي';
+  }
+  document.getElementById('correctStorage').focus();
+}
+
+function submitCorrection() {
+  var storage = document.getElementById('correctStorage').value.trim();
+  var type = document.getElementById('correctType').value;
+  if (!storage) { alert('اكتب المساحة'); return; }
+  if (!currentCode) return;
+  
+  // حفظ في الكاش المحلي بالقيمة الصح
+  codeCache[currentCode.toUpperCase()] = { storage: storage, type: type, company: (lastParsed && lastParsed.company) || '' };
+  
+  // إرسال للسيرفر
+  fetch('/api/correct', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      code: currentCode,
+      wrongStorage: (lastParsed && lastParsed.storage) || '',
+      wrongType: (lastParsed && lastParsed.type) || '',
+      correctStorage: storage,
+      correctType: type,
+      step: (lastParsed && lastParsed.step) || '',
+      company: (lastParsed && lastParsed.company) || ''
+    })
+  }).catch(function(e){ console.log('correct err', e); });
+  
+  // تحديث العرض
+  document.getElementById('storageNum').textContent = storage;
+  document.getElementById('typeBadge').innerHTML = '<div class="type-badge ' + (type === 'زجاجي' ? 'glass' : 'normal') + '">' + (type === 'زجاجي' ? '🔵 زجاجي' : '🟢 عادي') + '</div>';
+  document.getElementById('correctionForm').style.display = 'none';
+  addChatMsg('المساعد', '📝 تم التصحيح: ' + currentCode + ' = ' + storage + 'GB ' + type, 'bot');
+  showToast('تم التصحيح ✓');
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2000);
+}
+
 function nextPhoto() {
   showResult(false);
   showError(false);
+  document.getElementById('confirmActions').style.display = 'none';
+  document.getElementById('correctionForm').style.display = 'none';
   document.getElementById('imgPreview').classList.remove('show');
   var ov = document.getElementById('resultOverlay'); if (ov) ov.style.display = 'none';
   document.getElementById('manualCode').value = '';
