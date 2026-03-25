@@ -1543,6 +1543,11 @@ function showLoading(show) {
 
 function showResult(show) {
   document.getElementById('resultCard').classList.toggle('show', show);
+  if (show) {
+    setTimeout(function() {
+      document.getElementById('resultCard').scrollIntoView({behavior:'smooth', block:'nearest'});
+    }, 350);
+  }
 }
 
 function showError(msg) {
@@ -1641,8 +1646,19 @@ function nextPhoto() {
   isAnalyzing = false;
   autoProgress = 0;
   prevFrame = null;
+  // سكرول لفوق عشان الكاميرا تبقى قدامه
+  window.scrollTo({top: 0, behavior: 'smooth'});
   // حسب الوضع المختار
-  mainAction();
+  if (camMode === 'native') {
+    mainAction();
+  } else {
+    // كاميرا الموقع: لو شغالة → ابدأ التقاط تلقائي، لو مش شغالة → شغلها
+    if (stream && cameraActive) {
+      setTimeout(startAutoAnalysis, 500);
+    } else {
+      toggleBrowserCamera();
+    }
+  }
 }
 
 // API Key is on the server - no client key needed
