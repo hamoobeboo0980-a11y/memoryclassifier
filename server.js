@@ -113,20 +113,17 @@ function searchInDB(code) {
         }
     }
 
-    // 10) الاختصارات - YMEC (زجاجي) مع دعم المرادفات
-    if (upperCode.startsWith('TY')) {
-        const match = upperCode.match(/^TY[DEG]?([6-9B])/i);
-        if (match) {
-            const raw = match[1].toUpperCase();
-            const ymecMap = {
-                '6': '32', 'G': '32',
-                '7': '64',
-                '8': '128', 'B': '128',
-                '9': '256'
-            };
-            if (ymecMap[raw]) {
-                return { code: upperCode, storage: ymecMap[raw], type: 'زجاجي', company: 'YMEC' };
-            }
+    // 10) الاختصارات - YMEC (زجاجي) - الحرف الخامس بعد YMEC مع دعم المرادفات
+    if (upperCode.startsWith('YMEC') && upperCode.length >= 5) {
+        const ymecChar = upperCode[4].toUpperCase();
+        const ymecMap = {
+            '6': '32', 'G': '32',
+            '7': '64',
+            '8': '128', 'B': '128',
+            '9': '256'
+        };
+        if (ymecMap[ymecChar]) {
+            return { code: upperCode, storage: ymecMap[ymecChar], type: 'زجاجي', company: 'YMEC' };
         }
     }
 
