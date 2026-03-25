@@ -1824,23 +1824,44 @@ async function toggleFlash() {
 
 
 
+var imageCapture = null; // ImageCapture instance
+
 async function startCamera() {
   if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(x){} stream = null; }
+  imageCapture = null;
+
+  // محاولة 1: 4K + كاميرا خلفية (exact)
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: 'environment',
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        facingMode: { exact: 'environment' },
+        width: { ideal: 3840, max: 4096 },
+        height: { ideal: 2160, max: 4096 },
         focusMode: 'continuous'
       },
       audio: false
     });
   } catch(e) { stream = null; }
+
+  // محاولة 2: 1080p + كاميرا خلفية (تفضيل)
   if (!stream) {
-    addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. استخدم زر "📸 كاميرا" لفتح كاميرا الموبايل.', 'bot');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+    } catch(e) { stream = null; }
+  }
+
+  if (!stream) {
+    addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. بدل لوضع "📱 أصلية" واستخدم كاميرا الموبايل.', 'bot');
     return false;
   }
+
   var video = document.getElementById('video');
   if (video) {
     video.srcObject = stream;
@@ -1850,12 +1871,34 @@ async function startCamera() {
       setTimeout(resolve, 3000);
     });
   }
+
+  // تفعيل ImageCapture لو متاح (صورة بدقة الكاميرا الكاملة)
+  try {
+    if ('ImageCapture' in window) {
+      var track = stream.getVideoTracks()[0];
+      var ic = new ImageCapture(track);
+      await ic.grabFrame(); // اختبار
+      imageCapture = ic;
+      console.log('✨ ImageCapture شغال - هياخد صور بدقة الكاميرا الكاملة');
+    }
+  } catch(e) {
+    imageCapture = null;
+    console.log('ImageCapture مش متاح - هيستخدم Canvas');
+  }
+
+  // عرض الدقة الفعلية
+  try {
+    var settings = stream.getVideoTracks()[0].getSettings();
+    console.log('📹 دقة الكاميرا: ' + settings.width + 'x' + settings.height);
+  } catch(e) {}
+
   return true;
 }
 
 function stopCamera() {
   stopAutoAnalysis();
   if (stream) { stream.getTracks().forEach(function(t){t.stop();}); stream = null; }
+  imageCapture = null;
 }
 
 // ===== التقاط تلقائي ذكي (إعدادات Claude) =====
@@ -1973,14 +2016,36 @@ function tapCapture() {
   captureAndAnalyze();
 }
 
-function captureAndAnalyze() {
+async function captureAndAnalyze() {
   var video = document.getElementById('video');
   var canvas = document.getElementById('canvas');
   if (!video || !canvas) return;
+
+  // لو ImageCapture متاح → صورة بدقة الكاميرا الكاملة
+  if (imageCapture) {
+    try {
+      var blob = await imageCapture.takePhoto();
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var base64 = e.target.result;
+        var imageData = base64.split(',')[1];
+        analyzeImage(imageData, base64);
+      };
+      reader.readAsDataURL(blob);
+      console.log('📸 تم التقاط بـ ImageCapture (دقة كاملة)');
+      return;
+    } catch(e) {
+      console.log('ImageCapture فشل، هيستخدم Canvas:', e);
+    }
+  }
+
+  // Fallback: Canvas بالدقة الفعلية للفيديو
   var ctx = canvas.getContext('2d');
-  canvas.width = Math.max(video.videoWidth, 1280);
-  canvas.height = Math.max(video.videoHeight, 720);
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  var w = video.videoWidth || 1280;
+  var h = video.videoHeight || 720;
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(video, 0, 0, w, h);
   var base64 = canvas.toDataURL('image/jpeg', 1.0);
   var imageData = base64.split(',')[1];
   analyzeImage(imageData, base64);
