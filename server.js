@@ -225,11 +225,39 @@ function saveCache() {
 function getCached(code) {
     if (!code) return null;
     const key = code.toUpperCase().trim();
-    const entry = resultCache[key];
-    if (entry) {
-        console.log('من الكاش:', key);
-        return entry;
+    
+    // 1. مطابقة دقيقة
+    if (resultCache[key]) {
+        console.log('من الكاش (دقيق):', key);
+        return resultCache[key];
     }
+    
+    // 2. بدون شرطة وما بعدها
+    const noDash = key.split('-')[0];
+    if (noDash !== key && resultCache[noDash]) {
+        console.log('من الكاش (بدون شرطة):', noDash);
+        return resultCache[noDash];
+    }
+    
+    // 3. بأول 8 حروف - لو Gemini قرأ حرف مختلف في الآخر
+    if (key.length >= 8) {
+        const prefix = key.substring(0, 8);
+        for (const k of Object.keys(resultCache)) {
+            if (k.substring(0, 8) === prefix) {
+                console.log('من الكاش (بأول 8):', k, 'لـ', key);
+                return resultCache[k];
+            }
+        }
+    }
+    
+    // 4. الكاش فيه الكود بشرطة والمطلوب بدون
+    for (const k of Object.keys(resultCache)) {
+        if (k.startsWith(noDash) || noDash.startsWith(k.split('-')[0])) {
+            console.log('من الكاش (جزئي):', k, 'لـ', key);
+            return resultCache[k];
+        }
+    }
+    
     return null;
 }
 
@@ -237,6 +265,9 @@ function setCache(code, result) {
     if (!code || !result || !result.storage) return;
     const key = code.toUpperCase().trim();
     resultCache[key] = result;
+    // حفظ بدون شرطة كمان عشان المطابقة تبقى أسرع
+    const noDash = key.split('-')[0];
+    if (noDash !== key) resultCache[noDash] = result;
     saveCache();
     console.log('اتحفظ في الكاش:', key, '- إجمالي:', Object.keys(resultCache).length);
 }
@@ -360,6 +391,8 @@ app.post('/api/analyze', async (req, res) => {
             if (result) {
                 // لو الـ step مش cache يبقى المحاولة السريعة هي اللي قرأته
                 if (result.step !== 'cache') result.step = 'fast_' + result.step;
+                // حفظ تلقائي في الكاش عشان تاني مرة يرجع فوراً
+                setCache(rawCode, result);
                 return res.json(result);
             }
         }
@@ -451,6 +484,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
             const result = lookupCode(finalCode, learnedCodes);
             if (result) {
                 if (result.step !== 'cache') result.step = 'careful_' + result.step;
+                setCache(finalCode, result);
                 return res.json(result);
             }
 
@@ -467,6 +501,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
                     suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code,
                     step: 'fuzzy'
                 };
+                setCache(finalCode, fuzzyResult);
                 return res.json(fuzzyResult);
             }
         }
@@ -515,6 +550,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
         if (!parsed.ram) parsed.ram = extractRam(parsed.code || codeToAnalyze);
         parsed.step = 'gemini';
         console.log('Gemini حلل:', parsed);
+        setCache(codeToAnalyze, parsed);
         res.json(parsed);
 
     } catch (error) {
