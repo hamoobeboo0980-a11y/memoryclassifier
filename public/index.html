@@ -1864,9 +1864,9 @@ function captureAndAnalyze() {
   canvas.width = Math.max(video.videoWidth, 1280);
   canvas.height = Math.max(video.videoHeight, 720);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  var previewUrl = canvas.toDataURL('image/jpeg', 1.0);
-  var imageData = enhanceForGemini(canvas);
-  analyzeImage(imageData, previewUrl);
+  var base64 = canvas.toDataURL('image/jpeg', 1.0);
+  var imageData = base64.split(',')[1];
+  analyzeImage(imageData, base64);
 }
 
 function updateAutoUI(progress, msg) {
@@ -1880,21 +1880,12 @@ function updateAutoUI(progress, msg) {
 function captureNative(event) {
   var file = event.target.files[0];
   if (!file) return;
+  stopAutoAnalysis();
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
-    var img = new Image();
-    img.onload = function() {
-      var canvas = document.getElementById('canvas');
-      if (!canvas) canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      var imageData = enhanceForGemini(canvas);
-      analyzeImage(imageData, base64Full);
-    };
-    img.src = base64Full;
+    var imageData = base64Full.split(',')[1];
+    analyzeImage(imageData, base64Full);
   };
   reader.readAsDataURL(file);
   event.target.value = '';
@@ -2187,22 +2178,12 @@ function enhanceForGemini(sourceCanvas) {
 function uploadImage(event) {
   var file = event.target.files[0];
   if (!file) return;
-  stopAutoAnalysis(); // وقف التلقائي
+  stopAutoAnalysis();
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
-    var img = new Image();
-    img.onload = function() {
-      var canvas = document.getElementById('canvas');
-      if (!canvas) canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      var imageData = enhanceForGemini(canvas);
-      analyzeImage(imageData, base64Full);
-    };
-    img.src = base64Full;
+    var imageData = base64Full.split(',')[1];
+    analyzeImage(imageData, base64Full);
   };
   reader.readAsDataURL(file);
   event.target.value = '';
