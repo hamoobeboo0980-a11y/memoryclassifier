@@ -143,7 +143,7 @@
   /* Main */
   .main { padding: 16px; max-width: 480px; margin: 0 auto; }
 
-  /* Camera Section */
+  /* Capture Section */
   .camera-section {
     background: var(--card);
     border: 1px solid var(--border);
@@ -151,150 +151,6 @@
     overflow: hidden;
     margin-bottom: 16px;
     position: relative;
-  }
-
-  .camera-wrapper {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 4/3;
-    background: #000;
-    overflow: hidden;
-  }
-
-  #video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  #canvas { display: none; }
-
-  /* Overlay */
-  .cam-overlay {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-
-  /* Target frame */
-  .target-frame {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 65%;
-    aspect-ratio: 1.2;
-    border: 2px solid rgba(0,212,255,0.6);
-    border-radius: 8px;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
-  }
-
-  .target-frame::before, .target-frame::after,
-  .target-frame .c1, .target-frame .c2 {
-    content: '';
-    position: absolute;
-    width: 18px;
-    height: 18px;
-    border-color: var(--accent);
-    border-style: solid;
-  }
-  .target-frame::before { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-radius: 0 6px 0 0; }
-  .target-frame::after  { top: -2px; left: -2px;  border-width: 3px 0 0 3px; border-radius: 6px 0 0 0; }
-  .target-frame .c1     { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 6px 0; }
-  .target-frame .c2     { bottom: -2px; left: -2px;  border-width: 0 0 3px 3px; border-radius: 0 0 0 6px; }
-
-  /* Scan line */
-  .scan-line {
-    position: absolute;
-    left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    animation: scan 2s linear infinite;
-    opacity: 0;
-  }
-  .scanning .scan-line { opacity: 1; }
-  @keyframes scan {
-    0% { top: 20%; }
-    100% { top: 80%; }
-  }
-
-  /* Quality indicators */
-  .quality-bar {
-    position: absolute;
-    bottom: 0;
-    left: 0; right: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(8px);
-    padding: 10px 14px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .q-item {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11px;
-    color: var(--muted);
-  }
-
-  .q-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #333;
-    transition: all 0.3s;
-  }
-
-  .q-dot.good { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
-  .q-dot.warn { background: #ffaa00; box-shadow: 0 0 6px #ffaa00; }
-  .q-dot.bad  { background: #ff4455; }
-
-  /* Progress ring */
-  .auto-capture-ring {
-    position: absolute;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 48px;
-    height: 48px;
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-
-  .auto-capture-ring.visible { opacity: 1; }
-
-  .ring-svg circle {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-dasharray: 126;
-    stroke-dashoffset: 126;
-    transform: rotate(-90deg);
-    transform-origin: center;
-    transition: stroke-dashoffset 0.1s;
-  }
-
-  .ring-text {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--accent);
-  }
-
-  /* Camera controls */
-  .cam-controls {
-    padding: 14px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
   }
 
   .btn-capture {
@@ -878,31 +734,18 @@
 
 <div class="main">
 
-  <!-- Camera -->
+  <!-- Capture Section - كاميرا الموبايل الأصلية -->
   <div class="camera-section">
-    <div class="camera-wrapper" id="cameraWrapper">
-      <video id="video" autoplay="" playsinline="" muted=""></video>
-      <canvas id="canvas"></canvas>
-      <div class="cam-overlay" id="overlay">
-        <div class="target-frame" id="targetFrame">
-          <div class="c1"></div>
-          <div class="c2"></div>
-        </div>
-        <div class="scan-line"></div>
-        <div class="auto-capture-ring" id="captureRing">
-          <svg class="ring-svg" viewBox="0 0 48 48" width="48" height="48">
-            <circle cx="24" cy="24" r="20" id="ringCircle"></circle>
-          </svg>
-          <div class="ring-text" id="ringText">0%</div>
-        </div>
+    <canvas id="canvas" style="display:none"></canvas>
+    <!-- منطقة معاينة الصورة -->
+    <div id="capturePreview" style="width:100%;aspect-ratio:4/3;background:#000;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+      <img id="previewImg" style="max-width:100%;max-height:100%;object-fit:contain;display:none">
+      <div id="previewPlaceholder" style="text-align:center;padding:20px">
+        <div style="font-size:64px;margin-bottom:12px">📸</div>
+        <div style="font-size:16px;font-weight:700;color:var(--accent);margin-bottom:6px">صوّر الشريحة</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.6">اضغط على الزر لفتح كاميرا الموبايل<br>أو ارفع صورة من المعرض</div>
       </div>
-      <div class="quality-bar">
-        <div class="q-item"><div class="q-dot" id="qSharp"></div> حدة</div>
-        <div class="q-item"><div class="q-dot" id="qStable"></div> ثبات</div>
-        <div class="q-item"><div class="q-dot" id="qLight"></div> إضاءة</div>
-        <div class="q-item" style="margin-right:auto;font-size:10px;color:var(--muted)" id="autoMsg">وجّه الكاميرا</div>
-      </div>
-      <!-- Result Overlay inside camera -->
+      <!-- Result Overlay -->
       <div id="resultOverlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);z-index:20;flex-direction:column;align-items:center;justify-content:center;gap:8px">
         <img id="imgPreviewOverlay" style="max-height:45%;max-width:90%;border-radius:10px;object-fit:contain">
         <div id="typeBadgeOverlay"></div>
@@ -913,20 +756,15 @@
         <div id="detectedCodeOverlay" style="font-size:13px;color:#aaa;letter-spacing:1px"></div>
       </div>
     </div>
-    <!-- 4 buttons row -->
-    <div style="display:flex;gap:6px;padding:10px;background:var(--card)">
-      <button class="btn-capture" id="btnCapture" onclick="captureManual()" style="flex:1;font-size:13px;padding:10px 4px" data-manus_clickable="true" data-manus_click_id="1">
-        📷 التقاط
-      </button>
-      <button class="btn-upload" id="btnCamToggle" onclick="toggleCamera()" style="flex:1;font-size:13px;padding:10px 4px" data-manus_clickable="true" data-manus_click_id="2">
-        📷 تشغيل
-      </button>
-      <button class="btn-upload" id="btnFlash" onclick="toggleFlash()" style="flex:1;font-size:13px;padding:10px 4px" data-manus_clickable="true" data-manus_click_id="3">
-        🔦 كشاف
-      </button>
-      <label class="btn-upload" style="flex:1;font-size:13px;padding:10px 4px;cursor:pointer;text-align:center" data-manus_clickable="true" data-manus_click_id="4">
-        🖼 صورة
-        <input type="file" accept="image/*" style="display: none;" onchange="uploadImage(event)">
+    <!-- 2 buttons row -->
+    <div style="display:flex;gap:8px;padding:12px;background:var(--card)">
+      <label class="btn-capture" style="flex:2;font-size:15px;padding:14px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:8px">
+        📸 صوّر شريحة
+        <input type="file" accept="image/*" capture="environment" style="display:none" onchange="captureNative(event)">
+      </label>
+      <label class="btn-upload" style="flex:1;font-size:13px;padding:14px 4px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px">
+        🖼 من المعرض
+        <input type="file" accept="image/*" style="display:none" onchange="uploadImage(event)">
       </label>
     </div>
   </div>
@@ -1056,8 +894,6 @@ let unknownCodes = JSON.parse(localStorage.getItem('unknownCodes') || '[]');
 let sessionCount = 0;
 var currentDisplayStorage = "";
 let currentCode = '';
-let stream = null;
-let autoCapture = { sharpness: 0, stability: 0, light: 0, progress: 0, timer: null, prevFrame: null };
 let isAnalyzing = false;
 var codeCache = {}; // كاش للبحث السريع - بيحفظ النتائج السابقة
 
@@ -1380,7 +1216,6 @@ async function analyzeImage(base64, previewSrc) {
       var sourceInfo = parsed.suggestion ? ' (تصحيح ذكي: ' + parsed.suggestion + ')' : '';
       addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' - صح ولا غلط؟', 'bot');
       isAnalyzing = false;
-      if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
     }
 
@@ -1405,8 +1240,6 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   isAnalyzing = false;
-  // إعادة تشغيل التصوير التلقائي بعد ثانيتين
-  if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
 }
 
 function searchManual() {
@@ -1690,11 +1523,12 @@ function nextPhoto() {
   document.getElementById('imgPreview').classList.remove('show');
   var ov = document.getElementById('resultOverlay'); if (ov) ov.style.display = 'none';
   document.getElementById('manualCode').value = '';
-  autoCapture.progress = 0;
-  autoCapture.prevFrame = null;
   isAnalyzing = false;
-  // إعادة تشغيل التصوير التلقائي
-  if (stream) setTimeout(startAutoAnalysis, 500);
+  // إعادة المعاينة للحالة الأولية
+  var previewImg = document.getElementById('previewImg');
+  var placeholder = document.getElementById('previewPlaceholder');
+  if (previewImg) { previewImg.style.display = 'none'; previewImg.src = ''; }
+  if (placeholder) placeholder.style.display = 'block';
 }
 
 // API Key is on the server - no client key needed
@@ -1771,108 +1605,47 @@ async function testJbin() {
 jbinLoad();
 
 // Start
-// Don't auto-start camera
-let cameraActive = false;
-let flashActive = false;
-let guidanceShown = false;
-let macroActive = false;
 
-async function toggleCamera() {
-  if (cameraActive) {
-    stopAutoAnalysis();
-    stopCamera();
-    document.getElementById('btnCamToggle').textContent = '📷 تشغيل';
-    document.getElementById('btnCamToggle').style.background = '';
-    cameraActive = false;
-  } else {
-    var ok = await startCamera();
-    if (ok) {
-      document.getElementById('btnCamToggle').textContent = '⏹ إيقاف';
-      document.getElementById('btnCamToggle').style.background = 'rgba(0,212,255,0.2)';
-      cameraActive = true;
-      setTimeout(startAutoAnalysis, 1500);
+
+
+// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية =====
+function captureNative(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var base64Full = e.target.result;
+    
+    // عرض المعاينة
+    var previewImg = document.getElementById('previewImg');
+    var placeholder = document.getElementById('previewPlaceholder');
+    if (previewImg) {
+      previewImg.src = base64Full;
+      previewImg.style.display = 'block';
     }
-  }
+    if (placeholder) placeholder.style.display = 'none';
+    
+    // تحسين الصورة قبل الإرسال
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.getElementById('canvas');
+      if (!canvas) { canvas = document.createElement('canvas'); }
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      
+      // تحسين (قص + تباين + حدة)
+      var imageData = enhanceForGemini(canvas);
+      analyzeImage(imageData, base64Full);
+    };
+    img.src = base64Full;
+  };
+  reader.readAsDataURL(file);
+  // إعادة تعيين الـ input عشان يشتغل لو اختار نفس الصورة تاني
+  event.target.value = '';
 }
-
-function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(t => t.stop());
-    stream = null;
-  }
-}
-
-async function toggleFlash() {
-    if (!stream) {
-        addChatMsg('المساعد', '⚠️ شغّل الكاميرا أولاً', 'bot');
-        return;
-    }
-    var newState = !flashActive;
-    try {
-        // وقف الكاميرا الحالية
-        stopAutoAnalysis();
-        stream.getTracks().forEach(function(t) { t.stop(); });
-        // أعد فتحها مع torch في getUserMedia مباشرة
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: { exact: 'environment' },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-                torch: newState
-            },
-            audio: false
-        });
-        var video = document.getElementById('video');
-        if (video) {
-            video.srcObject = stream;
-            await new Promise(function(resolve) {
-                video.onloadedmetadata = function() {
-                    video.play().then(resolve).catch(function(e) { resolve(); });
-                };
-                setTimeout(resolve, 2000);
-            });
-        }
-        flashActive = newState;
-        // إعادة تطبيق الماكرو (فوكس بس - بدون zoom عشان ما يتعارضش مع torch)
-        try {
-            var newTrack = stream.getVideoTracks()[0];
-            if (newTrack && newTrack.getCapabilities) {
-                var newCaps = newTrack.getCapabilities();
-                var macroAdv = [];
-                if (newCaps.focusMode && newCaps.focusMode.indexOf('continuous') >= 0) macroAdv.push({focusMode:'continuous'});
-                if (!flashActive && newCaps.zoom && newCaps.zoom.max > 1) macroAdv.push({zoom: Math.min(newCaps.zoom.max, 1.3)});
-                if (macroAdv.length > 0) await newTrack.applyConstraints({advanced: macroAdv});
-            }
-        } catch(me) { console.log('ماكرو بعد فلاش:', me.message); }
-        setTimeout(startAutoAnalysis, 1500);
-        var btn = document.getElementById('btnFlash');
-        if (flashActive) {
-            btn.style.background = 'rgba(255,200,0,0.3)';
-            btn.textContent = '💡 نوّرت';
-            addChatMsg('المساعد', '🔦 الفلاش شغّال', 'bot');
-        } else {
-            btn.style.background = '';
-            btn.textContent = '🔦 كشاف';
-            addChatMsg('المساعد', '🔦 الفلاش طفي', 'bot');
-        }
-    } catch (err) {
-        console.error('Torch via getUserMedia failed:', err);
-        // لو فشل - ارجع افتح الكاميرا عادي بدون فلاش
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-                audio: false
-            });
-            var video2 = document.getElementById('video');
-            if (video2) video2.srcObject = stream;
-            setTimeout(startAutoAnalysis, 1500);
-        } catch(e2) {}
-        flashActive = false;
-        addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز. حاول استخدام كشاف خارجي.', 'bot');
-    }
-}
-
-
 
 // ===== VALID CODE PREFIXES FOR VALIDATION =====
 // أي كود طوله 4 حروف أو أكتر = مقبول بدون قيود
@@ -2086,107 +1859,6 @@ async function processChat(userMsg) {
 }
 
 // ═══════════════════════════════════════
-// الدوال الأساسية: الكاميرا + الصور
-// ═══════════════════════════════════════
-
-async function startCamera() {
-  // أوقف أي stream قديم الأول
-  if (stream) {
-    try { stream.getTracks().forEach(function(t){ t.stop(); }); } catch(x){}
-    stream = null;
-  }
-
-  var attempts = [
-    { video: { facingMode: {exact: 'environment'}, width: {ideal:1920}, height: {ideal:1080} }, audio: false },
-    { video: { facingMode: {exact: 'environment'}, width: {ideal:1280}, height: {ideal:720} }, audio: false },
-    { video: { facingMode: 'environment' }, audio: false },
-    { video: true, audio: false }
-  ];
-
-  for (var i = 0; i < attempts.length; i++) {
-    try {
-      console.log('📷 محاولة كاميرا #' + (i+1));
-      stream = await navigator.mediaDevices.getUserMedia(attempts[i]);
-      break; // نجحت!
-    } catch(e) {
-      console.log('⚠️ محاولة #' + (i+1) + ' فشلت: ' + e.message);
-      stream = null;
-    }
-  }
-
-  if (!stream) {
-    addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. استخدم زر "🖼 صورة" لرفع صورة مباشرة.', 'bot');
-    cameraActive = false;
-    document.getElementById('btnCamToggle').textContent = '📷 تشغيل';
-    document.getElementById('btnCamToggle').style.background = '';
-    return false;
-  }
-
-  var video = document.getElementById('video');
-  if (video) {
-    video.srcObject = stream;
-    video.setAttribute('autoplay', '');
-    video.setAttribute('playsinline', '');
-    video.setAttribute('muted', '');
-    video.muted = true;
-    // انتظر لحد ما الفيديو يبقى جاهز
-    await new Promise(function(resolve) {
-      video.onloadedmetadata = function() {
-        video.play().then(resolve).catch(function(e) {
-          console.log('⚠️ play() error:', e.message);
-          resolve();
-        });
-      };
-      // timeout لو ماجاش metadata
-      setTimeout(resolve, 3000);
-    });
-  }
-
-  // ماكرو تلقائي + رسائل إرشاد
-  macroActive = false;
-  try {
-    var track = stream.getVideoTracks()[0];
-    if (track && track.getCapabilities) {
-      var caps = track.getCapabilities();
-      var adv = [];
-      // Focus
-      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) {
-        adv.push({focusMode:'continuous'});
-      } else if (!guidanceShown) {
-        addChatMsg('المساعد', '📷 حاول تثبت الموبايل عشان الفوكس يظبط', 'bot');
-      }
-      // Zoom (خفيف عشان الوضوح أهم من القرب)
-      if (caps.zoom && caps.zoom.max > 1) {
-        adv.push({zoom: Math.min(caps.zoom.max, 1.3)});
-        macroActive = true;
-      } else if (!guidanceShown) {
-        addChatMsg('المساعد', '🔍 صوّر من مسافة مريحة - المهم الصورة تكون واضحة', 'bot');
-      }
-      // Focus Distance (للتصوير القريب)
-      try {
-        if (caps.focusDistance && caps.focusDistance.min) {
-          adv.push({focusDistance: caps.focusDistance.min * 2});
-        }
-      } catch(fd) {}
-      if (adv.length > 0) await track.applyConstraints({advanced: adv});
-      // فحص دعم الفلاش
-      if (!guidanceShown) {
-        var torchSupported = false;
-        try {
-          if (caps.torch) torchSupported = true;
-        } catch(x) {}
-        if (!torchSupported) {
-          addChatMsg('المساعد', '🔦 موبايلك مش بيدعم الفلاش من المتصفح - شغّل إضاءة كويسة أو كشاف من تطبيق تاني', 'bot');
-        }
-      }
-      guidanceShown = true;
-    }
-  } catch(e) { console.log('ماكرو:', e.message); }
-
-  return true;
-}
-
-// ═══════════════════════════════════════
 // تحسين الصورة قبل الإرسال لـ Gemini
 // ═══════════════════════════════════════
 function enhanceForGemini(sourceCanvas) {
@@ -2257,25 +1929,7 @@ function enhanceForGemini(sourceCanvas) {
   }
 }
 
-function captureManual() {
-  if (!stream) {
-    alert('شغّل الكاميرا الأول');
-    return;
-  }
-  var video = document.getElementById('video');
-  var canvas = document.getElementById('canvas');
-  if (!canvas || !video) return;
-  
-  var ctx = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0);
-  
-  var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
-  // تحسين الصورة (قص + تباين + حدة) قبل الإرسال
-  var imageData = enhanceForGemini(canvas);
-  analyzeImage(imageData, previewUrl);
-}
+// captureManual removed - using native camera instead
 
 function uploadImage(event) {
   var file = event.target.files[0];
@@ -2284,179 +1938,36 @@ function uploadImage(event) {
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
-    var imageData = base64Full.split(',')[1];
-    analyzeImage(imageData, base64Full);
+    
+    // عرض المعاينة
+    var previewImg = document.getElementById('previewImg');
+    var placeholder = document.getElementById('previewPlaceholder');
+    if (previewImg) {
+      previewImg.src = base64Full;
+      previewImg.style.display = 'block';
+    }
+    if (placeholder) placeholder.style.display = 'none';
+    
+    // تحسين الصورة قبل الإرسال
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.getElementById('canvas');
+      if (!canvas) { canvas = document.createElement('canvas'); }
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      
+      var imageData = enhanceForGemini(canvas);
+      analyzeImage(imageData, base64Full);
+    };
+    img.src = base64Full;
   };
   reader.readAsDataURL(file);
+  event.target.value = '';
 }
 
-// ═══════════════════════════════════════
-// التصوير التلقائي الذكي
-// ═══════════════════════════════════════
-var autoInterval = null;
-var stableCount = 0;
-var STABLE_THRESHOLD = 3; // عدد الفريمات المستقرة قبل التصوير
-
-function startAutoAnalysis() {
-  if (autoInterval) clearInterval(autoInterval);
-  stableCount = 0;
-  autoCapture.progress = 0;
-  autoCapture.prevFrame = null;
-  updateRing(0);
-  updateAutoMsg('وجّه الكاميرا على شريحة الذاكرة');
-  autoInterval = setInterval(analyzeFrame, 1000);
-}
-
-function stopAutoAnalysis() {
-  if (autoInterval) { clearInterval(autoInterval); autoInterval = null; }
-  stableCount = 0;
-  autoCapture.progress = 0;
-  updateRing(0);
-  document.getElementById('captureRing').classList.remove('visible');
-}
-
-function analyzeFrame() {
-  if (!stream || isAnalyzing) return;
-  
-  var video = document.getElementById('video');
-  var canvas = document.getElementById('canvas');
-  if (!video || !canvas || video.videoWidth === 0) return;
-  
-  var ctx = canvas.getContext('2d');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0);
-  
-  // تحليل الصورة محلياً
-  var w = canvas.width;
-  var h = canvas.height;
-  // ناخد منطقة المنتصف فقط (حيث الـ IC غالباً)
-  var cx = Math.floor(w * 0.25);
-  var cy = Math.floor(h * 0.25);
-  var cw = Math.floor(w * 0.5);
-  var ch = Math.floor(h * 0.5);
-  var imgData = ctx.getImageData(cx, cy, cw, ch);
-  var pixels = imgData.data;
-  
-  // 1. قياس الإضاءة (brightness)
-  var totalBright = 0;
-  var pixelCount = pixels.length / 4;
-  for (var i = 0; i < pixels.length; i += 16) { // كل 4 بكسل للسرعة
-    totalBright += (pixels[i] * 0.299 + pixels[i+1] * 0.587 + pixels[i+2] * 0.114);
-  }
-  var avgBright = totalBright / (pixels.length / 16);
-  
-  // 2. قياس الحدة (sharpness) - Laplacian variance
-  var sharpness = 0;
-  var grayData = [];
-  for (var i = 0; i < pixels.length; i += 4) {
-    grayData.push(pixels[i] * 0.299 + pixels[i+1] * 0.587 + pixels[i+2] * 0.114);
-  }
-  var lapSum = 0;
-  var lapCount = 0;
-  for (var y = 1; y < ch - 1; y += 3) {
-    for (var x = 1; x < cw - 1; x += 3) {
-      var idx = y * cw + x;
-      var lap = -4 * grayData[idx] + grayData[idx-1] + grayData[idx+1] + grayData[idx-cw] + grayData[idx+cw];
-      lapSum += lap * lap;
-      lapCount++;
-    }
-  }
-  sharpness = lapCount > 0 ? Math.sqrt(lapSum / lapCount) : 0;
-  
-  // 3. قياس الاستقرار (stability) - مقارنة بالفريم السابق
-  var stability = 0;
-  if (autoCapture.prevFrame && autoCapture.prevFrame.length === grayData.length) {
-    var diffSum = 0;
-    for (var i = 0; i < grayData.length; i += 8) {
-      diffSum += Math.abs(grayData[i] - autoCapture.prevFrame[i]);
-    }
-    var avgDiff = diffSum / (grayData.length / 8);
-    stability = Math.max(0, 100 - avgDiff * 2);
-  }
-  autoCapture.prevFrame = grayData;
-  
-  // تحديث المؤشرات
-  var qSharp = document.getElementById('qSharp');
-  var qStable = document.getElementById('qStable');
-  var qLight = document.getElementById('qLight');
-  var autoMsg = document.getElementById('autoMsg');
-  
-  // الإضاءة
-  var lightOk = avgBright > 50 && avgBright < 230;
-  var lightWarn = avgBright > 30 && avgBright < 245;
-  qLight.className = 'q-dot ' + (lightOk ? 'good' : (lightWarn ? 'warn' : 'bad'));
-  
-  // الحدة (sharpness > 10 = واضح، > 5 = متوسط)
-  var sharpOk = sharpness > 10;
-  var sharpWarn = sharpness > 5;
-  qSharp.className = 'q-dot ' + (sharpOk ? 'good' : (sharpWarn ? 'warn' : 'bad'));
-  
-  // الاستقرار (stability > 85 = ثابت)
-  var stableOk = stability > 85;
-  var stableWarn = stability > 60;
-  qStable.className = 'q-dot ' + (stableOk ? 'good' : (stableWarn ? 'warn' : 'bad'));
-  
-  // ═══ تنبيه لو الإضاءة ضعيفة ═══
-  if (avgBright < 40 && !flashActive) {
-    updateAutoMsg('💡 الإضاءة ضعيفة - نوّر على الشريحة');
-    stableCount = 0;
-    return;
-  }
-  
-  // ═══ رسائل التوجيه ═══
-  if (!lightOk && !lightWarn) {
-    updateAutoMsg('الإضاءة ضعيفة جداً');
-    stableCount = 0;
-  } else if (!sharpWarn) {
-    updateAutoMsg('قرّب أكتر على الشريحة');
-    stableCount = 0;
-  } else if (!stableOk) {
-    updateAutoMsg('ثبّت إيدك شوية');
-    stableCount = 0;
-  } else if (sharpOk && stableOk && lightOk) {
-    stableCount++;
-    var progress = Math.min(100, Math.round((stableCount / STABLE_THRESHOLD) * 100));
-    autoCapture.progress = progress;
-    updateRing(progress);
-    document.getElementById('captureRing').classList.add('visible');
-    
-    if (progress < 100) {
-      updateAutoMsg('ممتاز! ثبّت... ' + progress + '%');
-    }
-    
-    // ═══ التصوير التلقائي ═══
-    if (stableCount >= STABLE_THRESHOLD) {
-      stopAutoAnalysis();
-      updateAutoMsg('جاري التصنيف...');
-      
-      // التقاط الصورة + تحسينها
-      var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
-      var imageData = enhanceForGemini(canvas);
-      analyzeImage(imageData, previewUrl);
-    }
-  } else {
-    stableCount = Math.max(0, stableCount - 1);
-    updateRing(Math.round((stableCount / STABLE_THRESHOLD) * 100));
-  }
-}
-
-function updateRing(percent) {
-  var circle = document.getElementById('ringCircle');
-  var text = document.getElementById('ringText');
-  if (circle) {
-    var offset = 126 - (126 * percent / 100);
-    circle.style.strokeDashoffset = offset;
-  }
-  if (text) text.textContent = percent + '%';
-  var ring = document.getElementById('captureRing');
-  if (ring) ring.classList.toggle('visible', percent > 0);
-}
-
-function updateAutoMsg(msg) {
-  var el = document.getElementById('autoMsg');
-  if (el) el.textContent = msg;
-}
+// Auto analysis removed - using native camera instead
 
 </script>
 </body>
