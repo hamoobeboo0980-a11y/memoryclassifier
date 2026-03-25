@@ -1474,17 +1474,38 @@ function stopCamera() {
   }
 }
 
-function toggleFlash() {
-  flashActive = !flashActive;
-  var btn = document.getElementById('btnFlash');
-  if (flashActive) {
-    btn.style.background = 'rgba(255,200,0,0.3)';
-    btn.textContent = '💡 نوّرت';
-    addChatMsg('المساعد', '💡 نوّر على الشريحة بكشاف الموبايل أو أي مصدر ضوء عشان الصورة تبقى واضحة 🔦', 'bot');
-  } else {
-    btn.style.background = '';
-    btn.textContent = '🔦 كشاف';
-  }
+async function toggleFlash() {
+    if (!stream) {
+        addChatMsg('المساعد', '⚠️ شغّل الكاميرا أولاً', 'bot');
+        return;
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+        addChatMsg('المساعد', '❌ لا يوجد مسار فيديو', 'bot');
+        return;
+    }
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (!caps.torch || !caps.torch.includes(true)) {
+        addChatMsg('المساعد', '🔦 الكاميرا لا تدعم الفلاش (استخدم الكاميرا الخلفية)', 'bot');
+        return;
+    }
+    flashActive = !flashActive;
+    try {
+        await track.applyConstraints({ advanced: [{ torch: flashActive }] });
+        const btn = document.getElementById('btnFlash');
+        if (flashActive) {
+            btn.style.background = 'rgba(255,200,0,0.3)';
+            btn.textContent = '💡 نوّرت';
+            addChatMsg('المساعد', '🔦 الفلاش شغال', 'bot');
+        } else {
+            btn.style.background = '';
+            btn.textContent = '🔦 كشاف';
+            addChatMsg('المساعد', '🔦 الفلاش طفي', 'bot');
+        }
+    } catch (err) {
+        addChatMsg('المساعد', '❌ فشل تشغيل الفلاش: ' + err.message, 'bot');
+        flashActive = !flashActive;
+    }
 }
 
 
