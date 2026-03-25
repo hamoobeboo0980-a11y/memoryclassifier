@@ -1816,8 +1816,8 @@ async function toggleFlash() {
         stream = await navigator.mediaDevices.getUserMedia({
             video: {
                 facingMode: { exact: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
                 torch: newState
             },
             audio: false
@@ -1840,7 +1840,7 @@ async function toggleFlash() {
                 var newCaps = newTrack.getCapabilities();
                 var macroAdv = [];
                 if (newCaps.focusMode && newCaps.focusMode.indexOf('continuous') >= 0) macroAdv.push({focusMode:'continuous'});
-                if (!flashActive && newCaps.zoom && newCaps.zoom.max > 1) macroAdv.push({zoom: Math.min(newCaps.zoom.max, 2.0)});
+                if (!flashActive && newCaps.zoom && newCaps.zoom.max > 1) macroAdv.push({zoom: Math.min(newCaps.zoom.max, 1.3)});
                 if (macroAdv.length > 0) await newTrack.applyConstraints({advanced: macroAdv});
             }
         } catch(me) { console.log('ماكرو بعد فلاش:', me.message); }
@@ -1860,7 +1860,7 @@ async function toggleFlash() {
         // لو فشل - ارجع افتح الكاميرا عادي بدون فلاش
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                video: { facingMode: { exact: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
                 audio: false
             });
             var video2 = document.getElementById('video');
@@ -2097,6 +2097,7 @@ async function startCamera() {
   }
 
   var attempts = [
+    { video: { facingMode: {exact: 'environment'}, width: {ideal:1920}, height: {ideal:1080} }, audio: false },
     { video: { facingMode: {exact: 'environment'}, width: {ideal:1280}, height: {ideal:720} }, audio: false },
     { video: { facingMode: 'environment' }, audio: false },
     { video: true, audio: false }
@@ -2154,13 +2155,19 @@ async function startCamera() {
       } else if (!guidanceShown) {
         addChatMsg('المساعد', '📷 حاول تثبت الموبايل عشان الفوكس يظبط', 'bot');
       }
-      // Zoom (ماكرو)
+      // Zoom (خفيف عشان الوضوح أهم من القرب)
       if (caps.zoom && caps.zoom.max > 1) {
-        adv.push({zoom: Math.min(caps.zoom.max, 2.0)});
+        adv.push({zoom: Math.min(caps.zoom.max, 1.3)});
         macroActive = true;
       } else if (!guidanceShown) {
-        addChatMsg('المساعد', '🔍 موبايلك مش بيدعم ماكرو - قرّب الموبايل من الشريحة', 'bot');
+        addChatMsg('المساعد', '🔍 صوّر من مسافة مريحة - المهم الصورة تكون واضحة', 'bot');
       }
+      // Focus Distance (للتصوير القريب)
+      try {
+        if (caps.focusDistance && caps.focusDistance.min) {
+          adv.push({focusDistance: caps.focusDistance.min * 2});
+        }
+      } catch(fd) {}
       if (adv.length > 0) await track.applyConstraints({advanced: adv});
       // فحص دعم الفلاش
       if (!guidanceShown) {
@@ -2179,6 +2186,77 @@ async function startCamera() {
   return true;
 }
 
+// ═══════════════════════════════════════
+// تحسين الصورة قبل الإرسال لـ Gemini
+// ═══════════════════════════════════════
+function enhanceForGemini(sourceCanvas) {
+  try {
+    var sw = sourceCanvas.width;
+    var sh = sourceCanvas.height;
+    
+    // 1. قص المنتصف (60%) - الشريحة غالباً في النص
+    var cropX = Math.floor(sw * 0.2);
+    var cropY = Math.floor(sh * 0.2);
+    var cropW = Math.floor(sw * 0.6);
+    var cropH = Math.floor(sh * 0.6);
+    
+    // canvas مؤقت للقص
+    var tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width = cropW;
+    tmpCanvas.height = cropH;
+    var tmpCtx = tmpCanvas.getContext('2d');
+    tmpCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+    
+    // 2. تحسين التباين والحدة
+    var imgData = tmpCtx.getImageData(0, 0, cropW, cropH);
+    var pixels = imgData.data;
+    
+    // حساب المتوسط للتباين التلقائي
+    var totalR = 0, totalG = 0, totalB = 0;
+    var pixCount = pixels.length / 4;
+    for (var i = 0; i < pixels.length; i += 4) {
+      totalR += pixels[i];
+      totalG += pixels[i+1];
+      totalB += pixels[i+2];
+    }
+    var avgBright = (totalR + totalG + totalB) / (pixCount * 3);
+    
+    // تباين تلقائي - أقوى للصور الغامقة (شرائح سوداء)
+    var contrast = avgBright < 100 ? 1.6 : 1.3;
+    var brightness = avgBright < 80 ? 20 : 0;
+    
+    for (var i = 0; i < pixels.length; i += 4) {
+      pixels[i] = Math.min(255, Math.max(0, contrast * (pixels[i] - 128) + 128 + brightness));
+      pixels[i+1] = Math.min(255, Math.max(0, contrast * (pixels[i+1] - 128) + 128 + brightness));
+      pixels[i+2] = Math.min(255, Math.max(0, contrast * (pixels[i+2] - 128) + 128 + brightness));
+    }
+    tmpCtx.putImageData(imgData, 0, 0);
+    
+    // 3. تحسين الحدة (unsharp mask بسيط)
+    var sharpCanvas = document.createElement('canvas');
+    sharpCanvas.width = cropW;
+    sharpCanvas.height = cropH;
+    var sharpCtx = sharpCanvas.getContext('2d');
+    // رسم الصورة المحسنة
+    sharpCtx.drawImage(tmpCanvas, 0, 0);
+    // طبقة blur خفيفة
+    sharpCtx.globalAlpha = 0.3;
+    sharpCtx.filter = 'blur(1px)';
+    sharpCtx.globalCompositeOperation = 'difference';
+    sharpCtx.drawImage(tmpCanvas, 0, 0);
+    sharpCtx.globalCompositeOperation = 'source-over';
+    sharpCtx.globalAlpha = 1.0;
+    sharpCtx.filter = 'none';
+    
+    // النتيجة النهائية: الصورة المحسنة
+    return tmpCanvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+  } catch(e) {
+    console.log('تحسين الصورة فشل:', e.message);
+    // لو فشل التحسين - ابعت الصورة الأصلية
+    return sourceCanvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+  }
+}
+
 function captureManual() {
   if (!stream) {
     alert('شغّل الكاميرا الأول');
@@ -2193,8 +2271,9 @@ function captureManual() {
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0);
   
-  var imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
   var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+  // تحسين الصورة (قص + تباين + حدة) قبل الإرسال
+  var imageData = enhanceForGemini(canvas);
   analyzeImage(imageData, previewUrl);
 }
 
@@ -2308,9 +2387,9 @@ function analyzeFrame() {
   var lightWarn = avgBright > 30 && avgBright < 245;
   qLight.className = 'q-dot ' + (lightOk ? 'good' : (lightWarn ? 'warn' : 'bad'));
   
-  // الحدة (sharpness > 15 = واضح، > 8 = متوسط)
-  var sharpOk = sharpness > 15;
-  var sharpWarn = sharpness > 8;
+  // الحدة (sharpness > 10 = واضح، > 5 = متوسط)
+  var sharpOk = sharpness > 10;
+  var sharpWarn = sharpness > 5;
   qSharp.className = 'q-dot ' + (sharpOk ? 'good' : (sharpWarn ? 'warn' : 'bad'));
   
   // الاستقرار (stability > 85 = ثابت)
@@ -2351,9 +2430,9 @@ function analyzeFrame() {
       stopAutoAnalysis();
       updateAutoMsg('جاري التصنيف...');
       
-      // التقاط الصورة
-      var imageData = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+      // التقاط الصورة + تحسينها
       var previewUrl = canvas.toDataURL('image/jpeg', 0.8);
+      var imageData = enhanceForGemini(canvas);
       analyzeImage(imageData, previewUrl);
     }
   } else {
