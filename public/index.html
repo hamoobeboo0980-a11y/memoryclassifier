@@ -1503,8 +1503,29 @@ async function toggleFlash() {
             console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via simple constraint');
         } catch (err2) {
             console.warn('Simple constraint also failed:', err2.message);
-            addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز/المتصفح. حاول استخدام كشاف خارجي.', 'bot');
-            return;
+            // محاولة 3: إعادة فتح الكاميرا مع torch في القيود الابتدائية
+            try {
+                var oldTracks = stream.getTracks();
+                var newStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: { exact: 'environment' },
+                        torch: newState
+                    }
+                });
+                oldTracks.forEach(function(t) { t.stop(); });
+                stream = newStream;
+                var video = document.getElementById('video');
+                if (video) video.srcObject = stream;
+                success = true;
+                flashActive = newState;
+                console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via re-initialization');
+                // إعادة تشغيل التحليل التلقائي بعد تغيير الـ stream
+                setTimeout(startAutoAnalysis, 1500);
+            } catch (err3) {
+                console.error('All torch methods failed:', err3);
+                addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز/المتصفح. حاول استخدام كشاف خارجي.', 'bot');
+                return;
+            }
         }
     }
     if (success) {
