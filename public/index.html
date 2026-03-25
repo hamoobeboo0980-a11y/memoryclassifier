@@ -1601,6 +1601,7 @@ function sendChat() {
   var msg = input.value.trim();
   if (!msg) return;
   input.value = '';
+  chatHistory.push({role: 'user', text: msg});
   addChatMsg('أنت', msg, 'user');
   processChat(msg);
 }
@@ -1613,6 +1614,9 @@ function addChatMsg(from, text, role) {
   div.innerHTML = '<span class="chat-from">' + from + ':</span> ' + text;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
+  if (role === 'bot' && !text.includes('جاري التفكير')) {
+    chatHistory.push({role: 'bot', text: text});
+  }
 }
 
 async function processChat(userMsg) {
@@ -1636,13 +1640,13 @@ async function processChat(userMsg) {
       lastParsed = {code: mentionedCode};
       var manualInput = document.getElementById('manualCode');
       if (manualInput) manualInput.value = mentionedCode;
-      addChatMsg('المساعد', '✅ لقيته في البيانات: ' + mentionedCode + ' → ' + (dbResult.storage || dbResult.capacity) + ' GB ' + dbResult.type, 'bot');
+      addChatMsg('المساعد', '✅ لقيته في البيانات: ' + mentionedCode + ' → ' + (dbResult.storage || dbResult.capacity) + ' GB ' + dbResult.type + (dbResult.fromShortcut ? ' (من الاختصار)' : ' (من الجدول)'), 'bot');
       return;
     }
     // دور في التعلم من السحابة
     var learnedRes = cloudLearned.find(function(l){ return l.code && l.code.toUpperCase() === mentionedCode.toUpperCase(); });
     if (learnedRes) {
-      addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedRes.storage || '?') + ' GB ' + (learnedRes.type === 'glass' ? 'زجاجي' : 'عادي'), 'bot');
+      addChatMsg('المساعد', '🧠 تعلمتها منك: ' + mentionedCode + ' → ' + (learnedRes.storage || '?') + ' GB ' + (learnedRes.type === 'glass' ? 'زجاجي' : 'عادي') + (learnedRes.corrected ? ' (من تصحيح المستخدم)' : ' (متعلم)'), 'bot');
       return;
     }
   }
@@ -1741,7 +1745,9 @@ async function processChat(userMsg) {
           storage: currentDisplayStorage || (lastParsed && lastParsed.storage) || '',
           type: (lastParsed && lastParsed.type) || '',
           company: (lastParsed && lastParsed.company) || ''
-        }
+        },
+        history: chatHistory.slice(-10),
+        learnedCodes: cloudLearned
       })
     });
     var chatData = await chatRes.json();

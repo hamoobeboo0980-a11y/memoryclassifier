@@ -285,21 +285,65 @@ app.post('/api/analyze', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, context } = req.body;
+        const { message, context, history, learnedCodes } = req.body;
         if (!message) return res.status(400).json({ error: "No message" });
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        // بناء ملخص الجداول لـ Gemini
+        let dbSummary = 'جداول الأكواد العادية (BGA):\n';
+        for (const [cap, codes] of Object.entries(NORMAL_DB)) {
+            dbSummary += cap + ': ' + codes.slice(0, 5).join(', ') + (codes.length > 5 ? ' ... (و' + (codes.length - 5) + ' تاني)' : '') + '\n';
+        }
+        dbSummary += '\nجداول الزجاجي (EMMC):\n';
+        for (const [cap, codes] of Object.entries(EMMC_DB)) {
+            dbSummary += cap + 'GB: ' + codes.slice(0, 5).join(', ') + (codes.length > 5 ? ' ... (و' + (codes.length - 5) + ' تاني)' : '') + '\n';
+        }
+
+        // ملخص الاختصارات
+        dbSummary += '\nاختصارات سامسونج (الحرف قبل الرقم): N=8, E=16, X/D=32, C/H/P=64, G/V=128, F/S=256\n';
+        dbSummary += 'اختصارات YMEC (الحرف الخامس بعد YMEC): 6/G=32, 7=64, 8/B=128, 9=256 (زجاجي)\n';
+        dbSummary += 'اختصارات UNIC: 05G=32, 06G=64, 07G=128 (زجاجي)\n';
+
+        // ملخص التصحيحات
+        let correctionsInfo = '';
+        if (learnedCodes && learnedCodes.length > 0) {
+            const corrected = learnedCodes.filter(c => c.corrected);
+            if (corrected.length > 0) {
+                correctionsInfo = '\nتصحيحات المستخدم (أعلى أولوية):\n';
+                corrected.slice(-10).forEach(c => {
+                    correctionsInfo += '- ' + c.code + ' = ' + c.storage + 'GB ' + (c.type === 'glass' ? 'زجاجي' : 'عادي') + '\n';
+                });
+            }
+        }
+
+        // تاريخ المحادثة
+        let historyText = '';
+        if (history && history.length > 0) {
+            historyText = '\nتاريخ المحادثة:\n';
+            history.slice(-10).forEach(h => {
+                historyText += (h.role === 'user' ? 'المستخدم' : 'أنت') + ': ' + h.text + '\n';
+            });
+        }
 
         const chatPrompt = `أنت مساعد ذكي متخصص في شرائح الذاكرة (Memory IC chips) للهواتف.
 اسمك "مساعد البحراوي" وبتتكلم مصري.
 
 معلومات عنك:
-- بتساعد في تصنيف شرائح الذاكرة (عادي/زجاجي EMMC)
-- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC
+- بتساعد في تصنيف شرائح الذاكرة (عادي BGA / زجاجي EMMC)
+- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC
 - العادي = BGA (بيتلحم على البورد)
 - الزجاجي = EMMC (بيتركب في سوكيت)
 
-${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || 'مفيش') + '\n- آخر نتيجة: ' + (context.storage || '?') + 'GB ' + (context.type || '?') + '\n- الشركة: ' + (context.company || '?') : ''}
+${dbSummary}${correctionsInfo}
+
+لما تصنف كود، لازم تقول عرفت منين:
+- "من الجدول" لو لقيته في البيانات
+- "من الاختصار" لو عرفته من نمط الحروف
+- "من تصحيح المستخدم" لو المستخدم صححه قبل كده
+- "تحليلي" لو حللته بنفسك
+
+${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || 'مفيش') + '\n- آخر نتيجة: ' + (context.storage || '?') + 'GB ' + (context.type || '?') + '\n- الشركة: ' + (context.company || '?') : ''}${historyText}
 
 رسالة المستخدم: "${message}"
 
@@ -307,7 +351,7 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
 
         const result = await model.generateContent({
             contents: [{ parts: [{ text: chatPrompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+            generationConfig: { temperature: 0.7, maxOutputTokens: 300 }
         });
 
         const reply = result.response.text().trim();
