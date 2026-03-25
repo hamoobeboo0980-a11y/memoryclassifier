@@ -765,41 +765,7 @@
 
   .toast.show { transform: translateX(-50%) translateY(0); }
 
-  /* Camera mode toggle */
-  .cam-mode-row {
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 6px 10px; background: var(--card); border-top: 1px solid var(--border);
-    font-size: 11px; color: var(--muted);
-  }
-  .cam-mode-label { font-weight: 600; }
-  .cam-mode-label.active { color: var(--accent); }
-  .toggle-switch {
-    position: relative; width: 44px; height: 24px;
-    background: rgba(0,212,255,0.2); border-radius: 12px;
-    cursor: pointer; transition: background 0.3s;
-  }
-  .toggle-switch.on { background: rgba(255,107,53,0.3); }
-  .toggle-knob {
-    position: absolute; top: 2px; left: 2px;
-    width: 20px; height: 20px; border-radius: 50%;
-    background: var(--accent); transition: left 0.3s;
-    box-shadow: 0 0 6px rgba(0,212,255,0.5);
-  }
-  .toggle-switch.on .toggle-knob {
-    left: 22px; background: var(--accent2);
-    box-shadow: 0 0 6px rgba(255,107,53,0.5);
-  }
 
-  /* Image preview */
-  .img-preview {
-    width: 100%;
-    max-height: 120px;
-    object-fit: contain;
-    border-radius: 12px;
-    margin-bottom: 12px;
-    display: none;
-  }
-  .img-preview.show { display: block; }
 
   /* Not found */
   .not-found {
@@ -839,28 +805,12 @@
         <div class="q-item" style="margin-right:auto;font-size:10px;color:var(--muted)" id="autoMsg">وجّه الكاميرا</div>
       </div>
       <div class="auto-progress-bar"><div class="auto-progress-fill" id="autoProgressFill"></div></div>
-      <!-- Result Overlay inside camera -->
-      <div id="resultOverlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.82);z-index:20;flex-direction:column;align-items:center;justify-content:center;gap:8px">
-        <img id="imgPreviewOverlay" style="max-height:45%;max-width:90%;border-radius:10px;object-fit:contain">
-        <div id="typeBadgeOverlay"></div>
-        <div style="display:flex;align-items:flex-end;gap:4px">
-          <span id="storageNumOverlay" style="font-size:52px;font-weight:900;color:#00d4ff;line-height:1">--</span>
-          <span style="font-size:22px;color:#00d4ff;padding-bottom:8px">GB</span>
-        </div>
-        <div id="detectedCodeOverlay" style="font-size:13px;color:#aaa;letter-spacing:1px"></div>
-      </div>
+
     </div>
-    <!-- Toggle row -->
-    <div class="cam-mode-row">
-      <span class="cam-mode-label" id="labelNative">📱 فلاش + لمسة</span>
-      <div class="toggle-switch on" id="camModeToggle" onclick="toggleCamMode()">
-        <div class="toggle-knob"></div>
-      </div>
-      <span class="cam-mode-label active" id="labelBrowser">🌐 تلقائي + لمسة</span>
-    </div>
+
     <!-- Buttons row -->
     <div style="display:flex;gap:6px;padding:8px 10px;background:var(--card)">
-      <button class="btn-capture" id="btnMain" onclick="mainAction()" style="flex:3;font-size:14px;padding:10px 4px">
+      <button class="btn-capture" id="btnMain" onclick="toggleBrowserCamera()" style="flex:3;font-size:14px;padding:10px 4px">
         📷 تشغيل الكاميرا
       </button>
       <button class="btn-upload" id="btnFlash" onclick="toggleFlash()" style="font-size:16px;padding:10px 12px;cursor:pointer;display:none">
@@ -871,8 +821,7 @@
         <input type="file" accept="image/*" style="display:none" onchange="uploadImage(event)">
       </label>
     </div>
-    <!-- Hidden native camera input -->
-    <input type="file" id="nativeCamInput" accept="image/*" capture="environment" style="display:none" onchange="captureNative(event)">
+
   </div>
 
   <!-- Stats Bar -->
@@ -926,7 +875,7 @@
       <div style="font-size:12px;color:var(--muted)" id="resultTime"></div>
     </div>
     <div class="result-body">
-      <img class="img-preview" id="imgPreview">
+
       <div id="typeBadge"></div>
       <div class="storage-display">
         <span class="storage-number" id="storageNum">--</span>
@@ -1004,7 +953,7 @@ let stream = null;
 let isAnalyzing = false;
 let cameraActive = false;
 var flashActive = false;
-var camMode = 'browser'; // 'browser' or 'native'
+
 var codeCache = {}; // كاش للبحث السريع
 var prevFrame = null;
 var autoProgress = 0;
@@ -1257,11 +1206,7 @@ async function analyzeImage(base64, previewSrc) {
   showResult(false);
   showError(false);
 
-  if (previewSrc) {
-    var img = document.getElementById('imgPreview');
-    img.src = previewSrc;
-    img.classList.add('show');
-  }
+
 
   // ===== المرحلة الأولى: اقرأ الكود من الصورة عبر السيرفر =====
   // API key محفوظ على السيرفر فقط - مش ظاهر هنا
@@ -1374,10 +1319,7 @@ function searchManual() {
     return;
   }
   
-  // إخفاء الصورة القديمة عند البحث اليدوي
-  const img = document.getElementById('imgPreview');
-  img.src = '';
-  img.classList.remove('show');
+
   
   const found = searchInDB(code);
   showResult(false);
@@ -1442,15 +1384,7 @@ function displayResult(code, found, company) {
   document.getElementById('detectedCode').textContent = code;
   document.getElementById('resultTime').textContent = new Date().toLocaleTimeString('ar');
 
-  // Show overlay inside camera
-  var overlay = document.getElementById('resultOverlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-    document.getElementById('detectedCodeOverlay').textContent = code;
-    var imgOvr = document.getElementById('imgPreviewOverlay');
-    var imgMain = document.getElementById('imgPreview');
-    if (imgMain && imgMain.src) imgOvr.src = imgMain.src;
-  }
+
 
   if (found) {
     const storage = found.storage || (found.capacity ? found.capacity.split('+')[0] : '?');
@@ -1459,13 +1393,10 @@ function displayResult(code, found, company) {
 
     document.getElementById('typeBadge').innerHTML = 
       `<div class="type-badge ${isGlass ? 'glass' : 'normal'}">${isGlass ? '🔵 زجاجي' : '⚪ عادي'}</div>`;
-    if (document.getElementById('typeBadgeOverlay'))
-      document.getElementById('typeBadgeOverlay').innerHTML = 
-        `<div style="font-size:16px;font-weight:700;color:${isGlass ? '#00d4ff' : '#aaa'}">${isGlass ? '🔵 زجاجي' : '⚪ عادي'}</div>`;
+
 
     document.getElementById('storageNum').textContent = storage;
-    if (document.getElementById('storageNumOverlay'))
-      document.getElementById('storageNumOverlay').textContent = storage;
+
 
     let ramHtml = '';
     if (found.type === 'عادي' && found.capacity && found.capacity.includes('+')) {
@@ -1483,9 +1414,9 @@ function displayResult(code, found, company) {
 
   } else {
     document.getElementById('typeBadge').innerHTML = '<div class="type-badge normal">⚠️ كود جديد - تم الحفظ</div>';
-    if (document.getElementById('typeBadgeOverlay')) document.getElementById('typeBadgeOverlay').innerHTML = '<div style="font-size:16px;font-weight:700;color:#ff6b35">⚠️ كود جديد</div>';
+
     document.getElementById('storageNum').textContent = '?';
-    if (document.getElementById('storageNumOverlay')) document.getElementById('storageNumOverlay').textContent = '?';
+
     document.getElementById('ramBga').innerHTML = 
       `<div class="info-chip" style="color:var(--accent2)">📋 هيوصلك الكود عشان تعرّفهوله</div>`;
   }
@@ -1644,20 +1575,17 @@ function nextPhoto() {
   showError(false);
   document.getElementById('confirmActions').style.display = 'none';
   document.getElementById('correctionForm').style.display = 'none';
-  document.getElementById('imgPreview').classList.remove('show');
-  var ov = document.getElementById('resultOverlay'); if (ov) ov.style.display = 'none';
+
   document.getElementById('manualCode').value = '';
   isAnalyzing = false;
   autoProgress = 0;
   prevFrame = null;
   // سكرول لفوق عشان الكاميرا تبقى قدامه
   window.scrollTo({top: 0, behavior: 'smooth'});
-  // حسب الوضع المختار
+  // لو الكاميرا شغالة → ابدأ تلقائي، لو مش شغالة → شغلها
   if (stream && cameraActive) {
-    // الكاميرا شغالة → ابدأ تلقائي لو browser mode
-    if (camMode === 'browser') setTimeout(startAutoAnalysis, 500);
+    setTimeout(startAutoAnalysis, 500);
   } else {
-    // الكاميرا مش شغالة → شغلها
     toggleBrowserCamera();
   }
 }
@@ -1749,33 +1677,9 @@ jbinLoad();
 
 // Start
 
-// ===== Toggle وضع الكاميرا =====
-function toggleCamMode() {
-  var tog = document.getElementById('camModeToggle');
-  if (camMode === 'browser') {
-    camMode = 'native';
-    tog.classList.remove('on');
-    document.getElementById('labelNative').classList.add('active');
-    document.getElementById('labelBrowser').classList.remove('active');
-    document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
-    // الكاميرا الأصلية = نفس الفيديو بس بدون تلقائي + فلاش دايم
-    stopAutoAnalysis();
-  } else {
-    camMode = 'browser';
-    tog.classList.add('on');
-    document.getElementById('labelBrowser').classList.add('active');
-    document.getElementById('labelNative').classList.remove('active');
-    document.getElementById('btnMain').innerHTML = '📷 تشغيل الكاميرا';
-    // لو الكاميرا شغالة → ابدأ تلقائي
-    if (stream && cameraActive) setTimeout(startAutoAnalysis, 500);
-  }
-}
 
-async function mainAction() {
-  toggleBrowserCamera();
-}
 
-// ===== كاميرا المتصفح + التقاط تلقائي ذكي =====
+// ===== كاميرا + التقاط تلقائي ذكي =====
 async function toggleBrowserCamera() {
   if (cameraActive) {
     stopCamera();
@@ -1789,13 +1693,7 @@ async function toggleBrowserCamera() {
       document.getElementById('btnMain').innerHTML = '⏹ إيقاف';
       document.getElementById('btnFlash').style.display = '';
       cameraActive = true;
-      if (camMode === 'native') {
-        // كاميرا أصلية: فلاش دايم + لمسة = تصوير
-        try { await toggleFlash(); } catch(e){}
-      } else {
-        // كاميرا الموقع: تلقائي + لمسة = تصوير
-        setTimeout(startAutoAnalysis, 1500);
-      }
+      setTimeout(startAutoAnalysis, 1500);
     }
   }
 }
@@ -1815,24 +1713,7 @@ async function toggleFlash() {
   }
 }
 
-// تشغيل الفلاش للكاميرا الأصلية (محاولة تلقائية)
-async function enableNativeFlash() {
-  try {
-    var s = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' }, audio: false });
-    var t = s.getVideoTracks()[0];
-    await t.applyConstraints({ advanced: [{ torch: true }] });
-    // نخلي الفلاش شغال لحد ما اليوزر يصور
-    window._nativeFlashStream = s;
-    return true;
-  } catch(e) { return false; }
-}
 
-function stopNativeFlash() {
-  if (window._nativeFlashStream) {
-    window._nativeFlashStream.getTracks().forEach(function(t){t.stop();});
-    window._nativeFlashStream = null;
-  }
-}
 
 async function startCamera() {
   if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(x){} stream = null; }
@@ -2003,21 +1884,7 @@ function updateAutoUI(progress, msg) {
   if (el && msg) el.textContent = msg;
 }
 
-// ===== CAPTURE NATIVE - كاميرا الموبايل الأصلية =====
-function captureNative(event) {
-  var file = event.target.files[0];
-  if (!file) return;
-  stopAutoAnalysis();
-  stopNativeFlash();
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var base64Full = e.target.result;
-    var imageData = base64Full.split(',')[1];
-    analyzeImage(imageData, base64Full);
-  };
-  reader.readAsDataURL(file);
-  event.target.value = '';
-}
+
 
 // ===== VALID CODE PREFIXES FOR VALIDATION =====
 // أي كود طوله 4 حروف أو أكتر = مقبول بدون قيود
@@ -2230,78 +2097,7 @@ async function processChat(userMsg) {
   }
 }
 
-// ═══════════════════════════════════════
-// تحسين الصورة قبل الإرسال لـ Gemini
-// ═══════════════════════════════════════
-function enhanceForGemini(sourceCanvas) {
-  try {
-    var sw = sourceCanvas.width;
-    var sh = sourceCanvas.height;
-    
-    // 1. قص المنتصف (60%) - الشريحة غالباً في النص
-    var cropX = Math.floor(sw * 0.2);
-    var cropY = Math.floor(sh * 0.2);
-    var cropW = Math.floor(sw * 0.6);
-    var cropH = Math.floor(sh * 0.6);
-    
-    // canvas مؤقت للقص
-    var tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = cropW;
-    tmpCanvas.height = cropH;
-    var tmpCtx = tmpCanvas.getContext('2d');
-    tmpCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-    
-    // 2. تحسين التباين والحدة
-    var imgData = tmpCtx.getImageData(0, 0, cropW, cropH);
-    var pixels = imgData.data;
-    
-    // حساب المتوسط للتباين التلقائي
-    var totalR = 0, totalG = 0, totalB = 0;
-    var pixCount = pixels.length / 4;
-    for (var i = 0; i < pixels.length; i += 4) {
-      totalR += pixels[i];
-      totalG += pixels[i+1];
-      totalB += pixels[i+2];
-    }
-    var avgBright = (totalR + totalG + totalB) / (pixCount * 3);
-    
-    // تباين تلقائي - أقوى للصور الغامقة (شرائح سوداء)
-    var contrast = avgBright < 100 ? 1.6 : 1.3;
-    var brightness = avgBright < 80 ? 20 : 0;
-    
-    for (var i = 0; i < pixels.length; i += 4) {
-      pixels[i] = Math.min(255, Math.max(0, contrast * (pixels[i] - 128) + 128 + brightness));
-      pixels[i+1] = Math.min(255, Math.max(0, contrast * (pixels[i+1] - 128) + 128 + brightness));
-      pixels[i+2] = Math.min(255, Math.max(0, contrast * (pixels[i+2] - 128) + 128 + brightness));
-    }
-    tmpCtx.putImageData(imgData, 0, 0);
-    
-    // 3. تحسين الحدة (unsharp mask بسيط)
-    var sharpCanvas = document.createElement('canvas');
-    sharpCanvas.width = cropW;
-    sharpCanvas.height = cropH;
-    var sharpCtx = sharpCanvas.getContext('2d');
-    // رسم الصورة المحسنة
-    sharpCtx.drawImage(tmpCanvas, 0, 0);
-    // طبقة blur خفيفة
-    sharpCtx.globalAlpha = 0.3;
-    sharpCtx.filter = 'blur(1px)';
-    sharpCtx.globalCompositeOperation = 'difference';
-    sharpCtx.drawImage(tmpCanvas, 0, 0);
-    sharpCtx.globalCompositeOperation = 'source-over';
-    sharpCtx.globalAlpha = 1.0;
-    sharpCtx.filter = 'none';
-    
-    // النتيجة النهائية: الصورة المحسنة
-    return tmpCanvas.toDataURL('image/jpeg', 0.95).split(',')[1];
-  } catch(e) {
-    console.log('تحسين الصورة فشل:', e.message);
-    // لو فشل التحسين - ابعت الصورة الأصلية
-    return sourceCanvas.toDataURL('image/jpeg', 0.95).split(',')[1];
-  }
-}
 
-// captureManual removed - using native camera instead
 
 function uploadImage(event) {
   var file = event.target.files[0];
