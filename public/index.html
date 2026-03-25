@@ -1709,18 +1709,17 @@ async function toggleCamera() {
 
 async function startCamera() {
   if (stream) { try { stream.getTracks().forEach(function(t){t.stop();}); } catch(x){} stream = null; }
-  var attempts = [
-    { video: { facingMode: {exact:'environment'}, width:{ideal:1920}, height:{ideal:1080}, focusMode:'continuous' }, audio: false },
-    { video: { facingMode: {exact:'environment'}, width:{ideal:1280}, height:{ideal:720} }, audio: false },
-    { video: { facingMode: 'environment' }, audio: false },
-    { video: true, audio: false }
-  ];
-  for (var i = 0; i < attempts.length; i++) {
-    try {
-      stream = await navigator.mediaDevices.getUserMedia(attempts[i]);
-      break;
-    } catch(e) { stream = null; }
-  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'environment',
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        focusMode: 'continuous'
+      },
+      audio: false
+    });
+  } catch(e) { stream = null; }
   if (!stream) {
     addChatMsg('المساعد', '⚠️ مش قادر أفتح الكاميرا. استخدم زر "📸 كاميرا" لفتح كاميرا الموبايل.', 'bot');
     return false;
@@ -1734,18 +1733,6 @@ async function startCamera() {
       setTimeout(resolve, 3000);
     });
   }
-  // ماكرو + فوكس
-  try {
-    var track = stream.getVideoTracks()[0];
-    if (track && track.getCapabilities) {
-      var caps = track.getCapabilities();
-      var adv = [];
-      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) adv.push({focusMode:'continuous'});
-      if (caps.zoom && caps.zoom.max > 1) adv.push({zoom: Math.min(caps.zoom.max, 1.3)});
-      try { if (caps.focusDistance && caps.focusDistance.min) adv.push({focusDistance: caps.focusDistance.min * 2}); } catch(fd){}
-      if (adv.length > 0) await track.applyConstraints({advanced: adv});
-    }
-  } catch(e) { console.log('ماكرو:', e.message); }
   return true;
 }
 
