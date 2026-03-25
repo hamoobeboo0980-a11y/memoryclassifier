@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
@@ -153,25 +154,47 @@ function detectCompany(code) {
 // API Endpoint - المنطق الجديد
 // ═══════════════════════════════════════════════════════════════
 
-// كاش النتائج - عشان منبعتش نفس الكود لـ Gemini كل مرة
-const resultCache = new Map();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 ساعة
+// كاش النتائج - ملف JSON دائم عشان ميتمسحش لو السيرفر اتعمله restart
+const CACHE_FILE = path.join(__dirname, 'cache.json');
+let resultCache = {};
+
+// تحميل الكاش من الملف لما السيرفر يشتغل
+try {
+    if (fs.existsSync(CACHE_FILE)) {
+        resultCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+        console.log('تم تحميل الكاش:', Object.keys(resultCache).length, 'كود');
+    }
+} catch (e) {
+    console.error('خطأ تحميل الكاش:', e.message);
+    resultCache = {};
+}
+
+// حفظ الكاش في الملف (بيتعمل كل ما نضيف كود جديد)
+function saveCache() {
+    try {
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(resultCache, null, 2), 'utf8');
+    } catch (e) {
+        console.error('خطأ حفظ الكاش:', e.message);
+    }
+}
 
 function getCached(code) {
     if (!code) return null;
     const key = code.toUpperCase().trim();
-    const entry = resultCache.get(key);
-    if (entry && (Date.now() - entry.time) < CACHE_TTL) {
+    const entry = resultCache[key];
+    if (entry) {
         console.log('من الكاش:', key);
-        return entry.result;
+        return entry;
     }
-    if (entry) resultCache.delete(key); // خلص وقته
     return null;
 }
 
 function setCache(code, result) {
-    if (!code || !result) return;
-    resultCache.set(code.toUpperCase().trim(), { result, time: Date.now() });
+    if (!code || !result || !result.storage) return;
+    const key = code.toUpperCase().trim();
+    resultCache[key] = result;
+    saveCache();
+    console.log('اتحفظ في الكاش:', key, '- إجمالي:', Object.keys(resultCache).length);
 }
 
 // دالة البحث التقريبي - بتدور على أقرب كود شبيه مع وزن الأخطاء الشائعة
@@ -381,13 +404,16 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
             const fuzzy = fuzzySearchInDB(finalCode);
             if (fuzzy) {
                 console.log('تصحيح ذكي: قرأت "' + finalCode + '" وأقرب كود "' + fuzzy.code + '" (فرق: ' + fuzzy.distance + ')');
-                return res.json({
+                const fuzzyResult = {
                     code: fuzzy.code,
                     storage: fuzzy.storage,
                     type: fuzzy.type,
                     company: fuzzy.company,
                     suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code
-                });
+                };
+                setCache(finalCode, fuzzyResult);
+                setCache(fuzzy.code, fuzzyResult);
+                return res.json(fuzzyResult);
             }
         }
 
@@ -429,6 +455,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
         }
 
         console.log('Gemini حلل:', parsed);
+        if (parsed.storage) setCache(codeToAnalyze, parsed);
         res.json(parsed);
 
     } catch (error) {
