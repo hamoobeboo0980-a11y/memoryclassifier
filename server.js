@@ -306,6 +306,27 @@ function getCached(code) {
         }
     }
     
+    // 5. fuzzy - أخطاء شائعة (O/0, I/1, B/8, S/5, G/6, Z/2)
+    if (noDash.length >= 6) {
+        for (const k of Object.keys(resultCache)) {
+            const kNoDash = k.split('-')[0];
+            if (Math.abs(kNoDash.length - noDash.length) > 1) continue;
+            let diff = 0;
+            const len = Math.min(kNoDash.length, noDash.length);
+            for (let i = 0; i < len; i++) {
+                if (kNoDash[i] !== noDash[i]) {
+                    diff++;
+                    if (diff > 2) break;
+                }
+            }
+            if (kNoDash.length !== noDash.length) diff++;
+            if (diff <= 2) {
+                console.log('من الكاش (fuzzy):', k, 'لـ', key, '- فرق:', diff);
+                return resultCache[k];
+            }
+        }
+    }
+    
     return null;
 }
 
