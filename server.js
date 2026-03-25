@@ -310,7 +310,11 @@ app.post('/api/analyze', async (req, res) => {
         // لو المحاولة الأولى نجحت والكود صالح - دور في الجداول
         if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3) {
             const result = lookupCode(rawCode, learnedCodes);
-            if (result) return res.json(result);
+            if (result) {
+                // لو الـ step مش cache يبقى المحاولة السريعة هي اللي قرأته
+                if (result.step !== 'cache') result.step = 'fast_' + result.step;
+                return res.json(result);
+            }
         }
 
         // ═══════════════════════════════════════════════════════
@@ -398,7 +402,10 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
         const finalCode = (carefulCode && carefulCode !== 'NOT_FOUND' && carefulCode.length >= 3) ? carefulCode : rawCode;
         if (finalCode && finalCode !== 'NOT_FOUND') {
             const result = lookupCode(finalCode, learnedCodes);
-            if (result) return res.json(result);
+            if (result) {
+                if (result.step !== 'cache') result.step = 'careful_' + result.step;
+                return res.json(result);
+            }
 
             // ═══ التصحيح الذكي: دور على أقرب كود شبيه ═══
             const fuzzy = fuzzySearchInDB(finalCode);
@@ -409,7 +416,8 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
                     storage: fuzzy.storage,
                     type: fuzzy.type,
                     company: fuzzy.company,
-                    suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code
+                    suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code,
+                    step: 'fuzzy'
                 };
                 setCache(finalCode, fuzzyResult);
                 setCache(fuzzy.code, fuzzyResult);
@@ -454,6 +462,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
             }
         }
 
+        parsed.step = 'gemini';
         console.log('Gemini حلل:', parsed);
         if (parsed.storage) setCache(codeToAnalyze, parsed);
         res.json(parsed);
@@ -461,12 +470,13 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
     } catch (error) {
         console.error("خطأ التحليل:", error.message || error);
         let errMsg = 'خطأ في التحليل';
-        if (error.message && error.message.includes('quota')) errMsg = 'الرصيد خلص - جرب بعدين';
+        let step = 'failed';
+        if (error.message && error.message.includes('quota')) { errMsg = 'الرصيد خلص - جرب بعدين'; step = 'no_credit'; }
         else if (error.message && error.message.includes('size')) errMsg = 'الصورة كبيرة - صور أقرب';
         else if (error.message && error.message.includes('SAFETY')) errMsg = 'Gemini رفض الصورة - جرب صورة تانية';
         else if (error.message && error.message.includes('timeout')) errMsg = 'الوقت خلص - جرب تاني';
         else errMsg = 'خطأ: ' + (error.message || 'جرب تاني').substring(0, 80);
-        res.status(500).json({ error: errMsg });
+        res.status(500).json({ error: errMsg, step });
     }
 });
 
@@ -477,7 +487,7 @@ function lookupCode(code, learnedCodes) {
     
     // شيك الكاش الأول
     const cached = getCached(cleanCode);
-    if (cached) return cached;
+    if (cached) return { ...cached, step: cached.step || 'cache' };
     
     // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
@@ -487,7 +497,7 @@ function lookupCode(code, learnedCodes) {
                 // مطابقة دقيقة: الكود المقروء يبدأ بالكود المتعلم أو العكس
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في التصحيحات:', item.code);
-                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'correction' };
                     setCache(cleanCode, result);
                     return result;
                 }
@@ -499,6 +509,7 @@ function lookupCode(code, learnedCodes) {
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
+        dbResult.step = 'db';
         setCache(cleanCode, dbResult);
         return dbResult;
     }
@@ -510,7 +521,7 @@ function lookupCode(code, learnedCodes) {
                 const itemUpper = item.code.toUpperCase();
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في المتعلم:', item.code);
-                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode) };
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'learned' };
                     setCache(cleanCode, result);
                     return result;
                 }
