@@ -652,8 +652,31 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
 });
 
 // دالة البحث الموحدة - بتدور في كل المصادر
+// تنظيف الكود المقروء - استخراج الكود الصح لو Gemini قرأ أكتر من سطر
+function cleanReadCode(code) {
+    if (!code) return code;
+    let c = code.replace(/[.,\s]+$/g, '').trim();
+    
+    // Micron: لو فيه JZ أو JW في النص - جيب الجزء ده بس
+    // مثال: "8LA92 JZ050" → "JZ050" أو "8LA92 JZG50" → "JZG50"
+    const jMatch = c.match(/\b(J[ZW][A-Z0-9]{2,6})\b/i);
+    if (jMatch) {
+        console.log('تنظيف Micron:', c, '→', jMatch[1]);
+        return jMatch[1].toUpperCase();
+    }
+    
+    // Samsung/Hynix/Toshiba/SanDisk: لو فيه كود معروف في النص
+    const knownMatch = c.match(/\b(KM[A-Z0-9]{6,}|KL[MU][A-Z0-9]{6,}|H9[A-Z0-9]{6,}|H2[68][A-Z0-9]{6,}|THG[A-Z0-9]{6,}|SDIN[A-Z0-9]{4,}|YMEC[A-Z0-9]{4,}|(?:08|16)EMCP[A-Z0-9]{2,})\b/i);
+    if (knownMatch && knownMatch[1].length < c.length) {
+        console.log('تنظيف كود:', c, '→', knownMatch[1]);
+        return knownMatch[1].toUpperCase();
+    }
+    
+    return c;
+}
+
 function lookupCode(code, learnedCodes) {
-    const cleanCode = code.replace(/[.,\s]+$/g, '').trim();
+    const cleanCode = cleanReadCode(code);
     const upperClean = cleanCode.toUpperCase();
     
     // شيك الكاش الأول
