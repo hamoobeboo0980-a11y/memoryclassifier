@@ -23,6 +23,47 @@ const EMMC_DB = {"16":["KLMAG4FE4B-B002","KLMAG4FEAB-B002","KLMAG2GEAC-B001","KL
 const MICRON_DB = {"8":["JWA60","JW687"],"16":["JW788"],"32":["JZ132"],"64":["JZ023","JZ160","JZ495","JZ075","JZ178","JZ196","JZ528"],"128":["JZ057","JZ144","JZ156","JZ064","JZ380","JZ341","JZ417","JZ447","JZ413"],"256":["JZ067","JZ161","JZ369","JZ418","JZ449","JZ348","JZ242","JZ459"],"512":["JZ347"]};
 
 // ═══════════════════════════════════════════════════════════════
+// استخراج الرام من الكود
+// ═══════════════════════════════════════════════════════════════
+
+const SAMSUNG_RAM_MAP = {
+    'S': '1', '2': '1', '6': '1.5',
+    'K': '2', '1': '2', '3': '2',
+    'A': '3', 'B': '3', '8': '3',
+    'D': '4',
+    '4': '6', 'C': '6',
+    'J': '8', 'P': '8',
+    'L': '10', 'M': '12'
+};
+
+const HYNIX_RAM_MAP = {
+    'A4': '0.5', 'A8': '1', 'AB': '2', 'AD': '3', 'AC': '4', 'AE': '6'
+};
+
+function extractRam(code) {
+    if (!code) return null;
+    const upper = code.toUpperCase();
+
+    // Samsung KM (عادي): الحرف قبل الأخير قبل الشرطة
+    if (upper.startsWith('KM') && !upper.startsWith('KLM') && !upper.startsWith('KLU')) {
+        const mainPart = upper.split('-')[0];
+        if (mainPart.length >= 3) {
+            const penultimate = mainPart[mainPart.length - 2];
+            if (SAMSUNG_RAM_MAP[penultimate]) return SAMSUNG_RAM_MAP[penultimate];
+        }
+    }
+
+    // SK Hynix H9 (عادي): الحرفان 8-9
+    if (upper.startsWith('H9')) {
+        // H9TQ17ABJTMCUR → الحرفان بعد الأرقام
+        const match = upper.match(/H9[A-Z]{2}\d{2}([A-Z]{2})/);
+        if (match && HYNIX_RAM_MAP[match[1]]) return HYNIX_RAM_MAP[match[1]];
+    }
+
+    return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // دالة البحث في قواعد البيانات (بدون Gemini)
 // ═══════════════════════════════════════════════════════════════
 
@@ -34,8 +75,11 @@ function searchInDB(code) {
     for (const [capacity, codes] of Object.entries(NORMAL_DB)) {
         for (const c of codes) {
             if (upperCode === c.toUpperCase() || upperCode.startsWith(c.toUpperCase().split('-')[0])) {
-                const storage = capacity.split('+')[0];
-                return { code: upperCode, storage, type: 'عادي', company: detectCompany(upperCode) };
+                const parts = capacity.split('+');
+                const storage = parts[0];
+                let ram = parts.length > 1 ? parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim() : null;
+                if (!ram) ram = extractRam(upperCode);
+                return { code: upperCode, storage, type: 'عادي', company: detectCompany(upperCode), ram };
             }
         }
     }
@@ -74,7 +118,7 @@ function searchInDB(code) {
             const letterMap = { 'N': '8', 'E': '16', 'X': '32', 'D': '32', 'C': '64', 'H': '64', 'P': '64', 'G': '128', 'V': '128', 'F': '256', 'S': '256' };
             const letter = match[1].toUpperCase();
             if (letterMap[letter]) {
-                return { code: upperCode, storage: letterMap[letter], type: 'عادي', company: 'Samsung' };
+                return { code: upperCode, storage: letterMap[letter], type: 'عادي', company: 'Samsung', ram: extractRam(upperCode) };
             }
         }
     }
@@ -84,7 +128,7 @@ function searchInDB(code) {
         const numStr = upperCode.substring(4, 6);
         const hynixMap = { '17': '16', '18': '16', '19': '16', '26': '32', '27': '32', '52': '64', '53': '64', '16': '128', '21': '256', '22': '256' };
         if (hynixMap[numStr]) {
-            return { code: upperCode, storage: hynixMap[numStr], type: 'عادي', company: 'SK Hynix' };
+            return { code: upperCode, storage: hynixMap[numStr], type: 'عادي', company: 'SK Hynix', ram: extractRam(upperCode) };
         }
     }
 
@@ -132,7 +176,7 @@ function searchInDB(code) {
     const generalMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
     const generalMatch = upperCode.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
     if (generalMatch && generalMap[generalMatch[1].toUpperCase()]) {
-        return { code: upperCode, storage: generalMap[generalMatch[1].toUpperCase()], type: 'عادي', company: detectCompany(upperCode) };
+        return { code: upperCode, storage: generalMap[generalMatch[1].toUpperCase()], type: 'عادي', company: detectCompany(upperCode), ram: extractRam(upperCode) };
     }
 
     return null; // لم يُعثر على الكود
@@ -248,8 +292,11 @@ function fuzzySearchInDB(code) {
                 const dist = weightedDistance(upper, c.toUpperCase());
                 if (dist > 0 && dist < bestDist) {
                     bestDist = dist;
-                    const storage = type === 'عادي' ? capacity.split('+')[0] : capacity;
-                    bestMatch = { code: c, storage, type, company: detectCompany(c), originalRead: code, distance: dist };
+                    const parts = capacity.split('+');
+                    const storage = type === 'عادي' ? parts[0] : capacity;
+                    let ram = (type === 'عادي' && parts.length > 1) ? parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim() : null;
+                    if (!ram) ram = extractRam(c);
+                    bestMatch = { code: c, storage, type, company: detectCompany(c), originalRead: code, distance: dist, ram };
                 }
             }
         }
@@ -416,6 +463,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
                     storage: fuzzy.storage,
                     type: fuzzy.type,
                     company: fuzzy.company,
+                    ram: fuzzy.ram || extractRam(fuzzy.code),
                     suggestion: 'قرأته ' + finalCode + ' وأقرب كود ' + fuzzy.code,
                     step: 'fuzzy'
                 };
@@ -439,8 +487,12 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
 - Micron JW/JZ: زجاجي
 - YMEC: الحرف الخامس بعد YMEC → 6/G=32|7=64|8/B=128|9=256 → زجاجي
 
+لو عادي (KM/H9): استخرج الرام من الكود:
+- Samsung KM: الحرف قبل الأخير قبل الشرطة → S/2=1|6=1.5|K/1/3=2|A/B/8=3|D=4|4/C=6|J/P=8|L=10|M=12
+- SK Hynix H9: الحرفان بعد الأرقام → A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
+
 أرجع JSON فقط:
-{"code":"${codeToAnalyze}","storage":"رقم","type":"عادي أو زجاجي","company":"اسم"}`;
+{"code":"${codeToAnalyze}","storage":"رقم","type":"عادي أو زجاجي","company":"اسم","ram":"رقم أو null"}`;
 
         const analyzeResult = await model.generateContent({
             contents: [{ parts: [{ text: analyzePrompt }]}],
@@ -460,6 +512,7 @@ ${rawCode ? '\nالمحاولة الأولى قرأت: "' + rawCode + '" بس م
             }
         }
 
+        if (!parsed.ram) parsed.ram = extractRam(parsed.code || codeToAnalyze);
         parsed.step = 'gemini';
         console.log('Gemini حلل:', parsed);
         res.json(parsed);
@@ -510,7 +563,7 @@ function lookupCode(code, learnedCodes) {
                 // مطابقة دقيقة: الكود المقروء يبدأ بالكود المتعلم أو العكس
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في التصحيحات:', item.code);
-                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'correction' };
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), ram: item.ram || extractRam(cleanCode), step: 'correction' };
                     return result;
                 }
             }
@@ -532,7 +585,7 @@ function lookupCode(code, learnedCodes) {
                 const itemUpper = item.code.toUpperCase();
                 if (upperClean === itemUpper || upperClean.startsWith(itemUpper) || itemUpper.startsWith(upperClean)) {
                     console.log('لقيته في المتعلم:', item.code);
-                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), step: 'learned' };
+                    const result = { code: cleanCode, storage: item.storage, type: item.type === 'glass' ? 'زجاجي' : 'عادي', company: detectCompany(cleanCode), ram: item.ram || extractRam(cleanCode), step: 'learned' };
                     return result;
                 }
             }
@@ -548,12 +601,12 @@ function lookupCode(code, learnedCodes) {
 
 app.post('/api/confirm', (req, res) => {
     try {
-        const { code, storage, type, company, step } = req.body;
+        const { code, storage, type, company, ram, step } = req.body;
         if (!code || !storage) return res.status(400).json({ error: 'مفيش كود أو مساحة' });
         
-        const result = { code, storage, type, company, step, confirmed: true };
+        const result = { code, storage, type, company, ram: ram || extractRam(code), step, confirmed: true };
         setCache(code, result);
-        console.log('✅ المستخدم أكد:', code, '=', storage + 'GB', type);
+        console.log('✅ المستخدم أكد:', code, '=', storage + 'GB', type, ram ? 'RAM:' + ram : '');
         res.json({ success: true, message: 'اتحفظ في الكاش' });
     } catch (error) {
         console.error('خطأ التأكيد:', error.message);
@@ -588,7 +641,7 @@ function saveErrorLog() {
 
 app.post('/api/correct', (req, res) => {
     try {
-        const { code, wrongResult, correctStorage, correctType, step } = req.body;
+        const { code, wrongResult, correctStorage, correctType, correctRam, step } = req.body;
         if (!code || !correctStorage) return res.status(400).json({ error: 'مفيش كود أو تصحيح' });
         
         // حفظ النتيجة الصح في الكاش
@@ -596,6 +649,7 @@ app.post('/api/correct', (req, res) => {
             code,
             storage: correctStorage,
             type: correctType || 'عادي',
+            ram: correctRam || extractRam(code),
             company: detectCompany(code),
             step: 'correction',
             confirmed: true

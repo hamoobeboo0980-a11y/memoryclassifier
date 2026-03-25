@@ -925,9 +925,10 @@
     </div>
     <div class="correction-form" id="correctionForm" style="display:none">
       <div style="font-size:13px;color:var(--muted);margin-bottom:8px;text-align:right">اكتب الصح:</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <input type="number" id="correctStorage" placeholder="المساحة" style="flex:1;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:Cairo;font-size:14px;text-align:center;outline:none" />
-        <select id="correctType" style="flex:1;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 6px;font-family:Cairo;font-size:14px;text-align:center;outline:none">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="number" id="correctStorage" placeholder="المساحة" style="flex:1;min-width:60px;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:Cairo;font-size:14px;text-align:center;outline:none" />
+        <input type="text" id="correctRam" placeholder="الرام" style="flex:1;min-width:50px;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:Cairo;font-size:14px;text-align:center;outline:none" />
+        <select id="correctType" style="flex:1;min-width:60px;background:var(--glass);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 6px;font-family:Cairo;font-size:14px;text-align:center;outline:none">
           <option value="عادي">عادي</option>
           <option value="زجاجي">زجاجي</option>
         </select>
@@ -1296,6 +1297,7 @@ async function analyzeImage(base64, previewSrc) {
       displayResult(detectedCode, {
         storage: parsed.storage,
         type: parsed.type,
+        ram: parsed.ram || null,
         capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
       }, parsed.company);
       // إظهار أزرار صح/غلط
@@ -1455,19 +1457,11 @@ function displayResult(code, found, company) {
 
 
     let ramHtml = '';
-    // 1. أولاً: لو في capacity فيها + (من الجدول)
-    if (found.type === 'عادي' && found.capacity && found.capacity.includes('+')) {
-      const parts = found.capacity.split('+');
-      let ramRaw = parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim();
-      const storageNum = parts[0].trim();
-      let ramDisplay = ramRaw;
-      if (storageNum === '16') {
-        if (ramRaw === '1' || ramRaw === '1.5') ramDisplay = '1';
-        else if (ramRaw === '2' || ramRaw === '3') ramDisplay = '2';
-      }
-      if (ramDisplay) ramHtml = `<div class="info-chip">💾 RAM <strong>${ramDisplay} GB</strong></div>`;
+    // 1. الرام من السيرفر (أولوية)
+    if (found.ram) {
+      ramHtml = `<div class="info-chip">💾 RAM <strong>${found.ram} GB</strong></div>`;
     }
-    // 2. لو مفيش رام من الجدول → جرب استخراجها من الكود (Samsung)
+    // 2. fallback: استخراج من الكود في الـ frontend
     if (!ramHtml && code) {
       var samsungRam = extractSamsungRam(code);
       if (samsungRam) ramHtml = `<div class="info-chip">💾 RAM <strong>${samsungRam} GB</strong></div>`;
@@ -1564,17 +1558,18 @@ function copyCode() {
 function confirmResult() {
   if (!lastParsed || !currentCode) return;
   // حفظ في الكاش المحلي
-  codeCache[currentCode.toUpperCase()] = { storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company };
+  codeCache[currentCode.toUpperCase()] = { storage: lastParsed.storage, type: lastParsed.type, ram: lastParsed.ram || null, company: lastParsed.company };
   // إرسال للسيرفر
   fetch('/api/confirm', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ code: currentCode, storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company, step: lastParsed.step })
+    body: JSON.stringify({ code: currentCode, storage: lastParsed.storage, type: lastParsed.type, company: lastParsed.company, ram: lastParsed.ram || null, step: lastParsed.step })
   }).catch(function(e){ console.log('confirm err', e); });
   // إخفاء الأزرار وإظهار رسالة
   document.getElementById('confirmActions').style.display = 'none';
   document.getElementById('correctionForm').style.display = 'none';
-  addChatMsg('المساعد', '✅ تم حفظ ' + currentCode + ' = ' + lastParsed.storage + 'GB ' + lastParsed.type, 'bot');
+  var ramText = lastParsed.ram ? ' | RAM ' + lastParsed.ram + 'GB' : '';
+  addChatMsg('المساعد', '✅ تم حفظ ' + currentCode + ' = ' + lastParsed.storage + 'GB ' + lastParsed.type + ramText, 'bot');
   showToast('تم الحفظ ✓');
   // حفظ تلقائي على السحابة
   autoSaveToCloud();
@@ -1586,6 +1581,7 @@ function showCorrectionForm() {
   // لو فيه قيم قديمة نعبيها
   if (lastParsed && lastParsed.storage) {
     document.getElementById('correctStorage').value = '';
+    document.getElementById('correctRam').value = '';
     document.getElementById('correctType').value = lastParsed.type || 'عادي';
   }
   document.getElementById('correctStorage').focus();
@@ -1593,12 +1589,13 @@ function showCorrectionForm() {
 
 function submitCorrection() {
   var storage = document.getElementById('correctStorage').value.trim();
+  var ram = document.getElementById('correctRam').value.trim();
   var type = document.getElementById('correctType').value;
   if (!storage) { alert('اكتب المساحة'); return; }
   if (!currentCode) return;
   
   // حفظ في الكاش المحلي بالقيمة الصح
-  codeCache[currentCode.toUpperCase()] = { storage: storage, type: type, company: (lastParsed && lastParsed.company) || '' };
+  codeCache[currentCode.toUpperCase()] = { storage: storage, type: type, ram: ram || null, company: (lastParsed && lastParsed.company) || '' };
   
   // إرسال للسيرفر
   fetch('/api/correct', {
@@ -1610,6 +1607,7 @@ function submitCorrection() {
       wrongType: (lastParsed && lastParsed.type) || '',
       correctStorage: storage,
       correctType: type,
+      correctRam: ram || null,
       step: (lastParsed && lastParsed.step) || '',
       company: (lastParsed && lastParsed.company) || ''
     })
@@ -1618,8 +1616,12 @@ function submitCorrection() {
   // تحديث العرض
   document.getElementById('storageNum').textContent = storage;
   document.getElementById('typeBadge').innerHTML = '<div class="type-badge ' + (type === 'زجاجي' ? 'glass' : 'normal') + '">' + (type === 'زجاجي' ? '🔵 زجاجي' : '🟢 عادي') + '</div>';
+  if (ram) {
+    document.getElementById('ramBga').innerHTML = '<div class="info-chip">💾 RAM <strong>' + ram + ' GB</strong></div>';
+  }
   document.getElementById('correctionForm').style.display = 'none';
-  addChatMsg('المساعد', '📝 تم التصحيح: ' + currentCode + ' = ' + storage + 'GB ' + type, 'bot');
+  var ramText = ram ? ' | RAM ' + ram + 'GB' : '';
+  addChatMsg('المساعد', '📝 تم التصحيح: ' + currentCode + ' = ' + storage + 'GB ' + type + ramText, 'bot');
   showToast('تم التصحيح ✓');
   // حفظ تلقائي على السحابة
   autoSaveToCloud();
