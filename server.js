@@ -239,12 +239,12 @@ function getCached(code) {
         return resultCache[noDash];
     }
     
-    // 3. بأول 8 حروف - لو Gemini قرأ حرف مختلف في الآخر
-    if (key.length >= 8) {
-        const prefix = key.substring(0, 8);
+    // 3. بأول 10 حروف - عشان يجيب الرام صح
+    if (key.length >= 10) {
+        const prefix = key.substring(0, 10);
         for (const k of Object.keys(resultCache)) {
-            if (k.substring(0, 8) === prefix) {
-                console.log('من الكاش (بأول 8):', k, 'لـ', key);
+            if (k.length >= 10 && k.substring(0, 10) === prefix) {
+                console.log('من الكاش (بأول 10):', k, 'لـ', key);
                 return resultCache[k];
             }
         }
