@@ -1479,32 +1479,45 @@ async function toggleFlash() {
         addChatMsg('المساعد', '⚠️ شغّل الكاميرا أولاً', 'bot');
         return;
     }
-    const track = stream.getVideoTracks()[0];
+    var track = stream.getVideoTracks()[0];
     if (!track) {
         addChatMsg('المساعد', '❌ لا يوجد مسار فيديو', 'bot');
         return;
     }
-    const caps = track.getCapabilities ? track.getCapabilities() : {};
-    if (!caps.torch || !caps.torch.includes(true)) {
-        addChatMsg('المساعد', '🔦 الكاميرا لا تدعم الفلاش (استخدم الكاميرا الخلفية)', 'bot');
-        return;
-    }
-    flashActive = !flashActive;
+    var newState = !flashActive;
+    var success = false;
+    // محاولة 1: إعادة ضبط القيود ثم تطبيق torch
     try {
-        await track.applyConstraints({ advanced: [{ torch: flashActive }] });
-        const btn = document.getElementById('btnFlash');
+        await track.applyConstraints({});
+        await track.applyConstraints({ advanced: [{ torch: newState }] });
+        success = true;
+        flashActive = newState;
+        console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via direct applyConstraints');
+    } catch (err) {
+        console.warn('Direct torch failed:', err.message);
+        // محاولة 2: constraint عادي بدون advanced
+        try {
+            await track.applyConstraints({ torch: newState });
+            success = true;
+            flashActive = newState;
+            console.log('Torch ' + (flashActive ? 'ON' : 'OFF') + ' via simple constraint');
+        } catch (err2) {
+            console.warn('Simple constraint also failed:', err2.message);
+            addChatMsg('المساعد', '❌ الفلاش لا يعمل على هذا الجهاز/المتصفح. حاول استخدام كشاف خارجي.', 'bot');
+            return;
+        }
+    }
+    if (success) {
+        var btn = document.getElementById('btnFlash');
         if (flashActive) {
             btn.style.background = 'rgba(255,200,0,0.3)';
             btn.textContent = '💡 نوّرت';
-            addChatMsg('المساعد', '🔦 الفلاش شغال', 'bot');
+            addChatMsg('المساعد', '🔦 الفلاش شغّال', 'bot');
         } else {
             btn.style.background = '';
             btn.textContent = '🔦 كشاف';
             addChatMsg('المساعد', '🔦 الفلاش طفي', 'bot');
         }
-    } catch (err) {
-        addChatMsg('المساعد', '❌ فشل تشغيل الفلاش: ' + err.message, 'bot');
-        flashActive = !flashActive;
     }
 }
 
@@ -1727,9 +1740,8 @@ async function startCamera() {
   }
 
   var attempts = [
-    { video: { facingMode: {exact: 'environment'}, width: {ideal:1280}, height: {ideal:720} }, audio: false },
+    { video: { facingMode: {exact: 'environment'}, width: {ideal:720}, height: {ideal:720} }, audio: false },
     { video: { facingMode: 'environment' }, audio: false },
-    { video: { facingMode: {ideal: 'environment'} }, audio: false },
     { video: true, audio: false }
   ];
 
