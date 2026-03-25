@@ -1474,28 +1474,16 @@ function stopCamera() {
   }
 }
 
-async function toggleFlash() {
-  if (!stream) {
-    addChatMsg('المساعد', 'شغّل الكاميرا الأول 📷', 'bot');
-    return;
-  }
-  var track = stream.getVideoTracks()[0];
-  if (!track) return;
-
-  // محاولة تشغيل/إيقاف الفلاش
-  var newState = !flashActive;
-  try {
-    await track.applyConstraints({ advanced: [{ torch: newState }] });
-    flashActive = newState;
-    document.getElementById('btnFlash').style.background = flashActive ? 'rgba(255,200,0,0.3)' : '';
-    document.getElementById('btnFlash').textContent = flashActive ? '💡 فلاش' : '🔦 كشاف';
-  } catch(e) {
-    console.log('Torch فشل:', e.message);
-    // الفلاش مش متاح - اطلب إضاءة يدوية
-    flashActive = false;
-    document.getElementById('btnFlash').style.background = 'rgba(255,200,0,0.3)';
-    document.getElementById('btnFlash').textContent = '💡 ورّيني ضوء';
-    addChatMsg('المساعد', '💡 الفلاش التلقائي مش متاح على الكاميرا دي.\nورّيني ضوء على الشريحة عشان الصورة تبقى واضحة 🔦', 'bot');
+function toggleFlash() {
+  flashActive = !flashActive;
+  var btn = document.getElementById('btnFlash');
+  if (flashActive) {
+    btn.style.background = 'rgba(255,200,0,0.3)';
+    btn.textContent = '💡 نوّرت';
+    addChatMsg('المساعد', '💡 نوّر على الشريحة بكشاف الموبايل أو أي مصدر ضوء عشان الصورة تبقى واضحة 🔦', 'bot');
+  } else {
+    btn.style.background = '';
+    btn.textContent = '🔦 كشاف';
   }
 }
 
@@ -1917,10 +1905,10 @@ function analyzeFrame() {
   var stableWarn = stability > 60;
   qStable.className = 'q-dot ' + (stableOk ? 'good' : (stableWarn ? 'warn' : 'bad'));
   
-  // ═══ فلاش تلقائي لو الإضاءة ضعيفة ═══
+  // ═══ تنبيه لو الإضاءة ضعيفة ═══
   if (avgBright < 40 && !flashActive) {
-    toggleFlash(); // شغّل الفلاش تلقائي
-    updateAutoMsg('تم تشغيل الفلاش تلقائياً');
+    updateAutoMsg('💡 الإضاءة ضعيفة - نوّر على الشريحة');
+    stableCount = 0;
     return;
   }
   
