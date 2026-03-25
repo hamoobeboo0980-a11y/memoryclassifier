@@ -113,12 +113,20 @@ function searchInDB(code) {
         }
     }
 
-    // 10) الاختصارات - YMEC (الحرف الخامس)
-    if (upperCode.startsWith('TY') || upperCode.startsWith('TYD') || upperCode.startsWith('TYE')) {
-        const ymecMap = { '6': '32', '7': '64', '8': '128', '9': '256' };
-        const ch = upperCode[4];
-        if (ymecMap[ch]) {
-            return { code: upperCode, storage: ymecMap[ch], type: 'عادي', company: 'YMEC' };
+    // 10) الاختصارات - YMEC (زجاجي) مع دعم المرادفات
+    if (upperCode.startsWith('TY')) {
+        const match = upperCode.match(/^TY[DEG]?([6-9B])/i);
+        if (match) {
+            const raw = match[1].toUpperCase();
+            const ymecMap = {
+                '6': '32', 'G': '32',
+                '7': '64',
+                '8': '128', 'B': '128',
+                '9': '256'
+            };
+            if (ymecMap[raw]) {
+                return { code: upperCode, storage: ymecMap[raw], type: 'زجاجي', company: 'YMEC' };
+            }
         }
     }
 

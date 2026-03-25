@@ -1019,11 +1019,16 @@ function searchInDB(code) {
   if (codeUpper.endsWith('06G')) return { storage: '64', type: 'زجاجي', fromShortcut: true };
   if (codeUpper.endsWith('07G')) return { storage: '128', type: 'زجاجي', fromShortcut: true };
   
-  // YMEC - الحرف الخامس يحدد المساحة
-  if (codeUpper.startsWith('YMEC') && codeUpper.length >= 5) {
-    const ymecMap = {'6':'32','7':'64','8':'128','9':'256'};
-    const ymecNum = codeUpper[4];
-    if (ymecMap[ymecNum]) return { storage: ymecMap[ymecNum], type: 'زجاجي', fromShortcut: true };
+  // YMEC (زجاجي) - دعم TY مع مرادفات
+  if (codeUpper.startsWith('TY')) {
+    const match = codeUpper.match(/^TY[DEG]?([6-9B])/i);
+    if (match) {
+        const raw = match[1].toUpperCase();
+        const ymecMap = { '6':'32', 'G':'32', '7':'64', '8':'128', 'B':'128', '9':'256' };
+        if (ymecMap[raw]) {
+            return { storage: ymecMap[raw], type: 'زجاجي', fromShortcut: true };
+        }
+    }
   }
   
   // 5. بحث عام بالحرف + الرقم (لأي كود فيه حرف قبل رقم معروف)
