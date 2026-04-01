@@ -1280,9 +1280,11 @@ async function analyzeImage(base64, previewSrc) {
     var conf = parsed.confidence || 0;
     console.log('🏆 WINNER: ' + source + ' (conf=' + conf + ') في ' + elapsed + 's');
 
-    // Hard abort - إلغاء حقيقي لكل fetch requests
+    // Hard abort - إلغاء حقيقي لكل fetch requests + Tesseract terminate
     try { abortOCR.abort(); } catch(e) {}
     try { abortGemini.abort(); } catch(e) {}
+    // إيقاف Tesseract Web Worker فعلياً لتحرير الموارد
+    try { if (typeof Tesseract !== 'undefined' && Tesseract.worker) Tesseract.worker.terminate(); } catch(e) {}
 
     stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
@@ -1374,6 +1376,7 @@ async function analyzeImage(base64, previewSrc) {
         if (raceWon || abortOCR.signal.aborted) return null;
         var line = ocrCleanup(lines[li]);
         if (line.length < 4) continue;
+        // LOCAL ONLY - بدون network calls
         var localResult = searchInDB(line);
         if (localResult && localResult.storage && localResult.type) {
           var company = localResult.company || detectCompanyLocal(line);
@@ -1383,23 +1386,6 @@ async function analyzeImage(base64, previewSrc) {
             step: 'ocr_db', confidence: 92
           };
           if (handleCandidate(result, 'OCR+DB')) return result;
-        }
-        try {
-          if (abortOCR.signal.aborted) return null;
-          var lookupRes = await fetch('/api/lookup', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ code: line, learnedCodes: cloudLearned, source: 'tesseract' }),
-            signal: abortOCR.signal
-          });
-          var lookupData = await lookupRes.json();
-          if (lookupData.found && lookupData.storage && lookupData.type) {
-            lookupData.step = 'ocr_lookup';
-            lookupData.confidence = 88;
-            if (handleCandidate(lookupData, 'OCR+Lookup')) return lookupData;
-          }
-        } catch(e) {
-          if (e.name === 'AbortError') return null;
         }
       }
       return null;

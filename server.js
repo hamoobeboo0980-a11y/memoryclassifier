@@ -282,17 +282,26 @@ loadCacheFromCloud();
 // ═══════════════════════════════════════════════════════════════
 // 1. فلتر الأكواد - isValidMemoryCode
 // ═══════════════════════════════════════════════════════════════
+// دالة موحدة للتحقق من كود الذاكرة (دمج isValidMemoryCode + looksLikeMemoryCode)
 function isValidMemoryCode(code) {
     if (!code || code.length < 3) return false;
     const u = code.toUpperCase().trim();
-    // أكواد معروفة
-    if (/^(KM[A-Z0-9]|KL[MU]|H9[A-Z]|H2[68]|HN[S8]T|THG|SDIN|SDAD|YMEC|TY[A-Z0-9]|0[8]EM|16E[MN]|J[WZ][A-Z0-9]|PA[0-9])/.test(u)) return true;
+    // أكواد معروفة (Samsung, Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC)
+    if (/^(KM[A-Z0-9]|KL[MU]|H9[A-Z]|H2[68]|HN[S8]T|THG|SDI[NDA]|SDAD|YMEC|TY[A-Z0-9]|0[8]EM|16E[MN]|J[WZ][A-Z0-9]|PA[0-9])/.test(u)) return true;
     // أرقام بحتة 6+ أرقام (أكواد Micron)
     if (/^[0-9]{6,}$/.test(u)) return true;
     // أنماط مع شرطة (مثل 038-125BT)
     if (/^[0-9]{3}-[0-9]{2,3}[A-Z]{2}$/.test(u)) return true;
+    // أكواد عامة: 8+ حروف وأرقام مختلطة بنسبة معقولة
+    if (u.length >= 8 && /[A-Z]/.test(u) && /[0-9]/.test(u)) {
+        const letters = (u.match(/[A-Z]/g) || []).length;
+        const digits = (u.match(/[0-9]/g) || []).length;
+        if (letters >= 2 && digits >= 2) return true;
+    }
     return false;
 }
+// alias للتوافق مع الكود القديم
+const looksLikeMemoryCode = isValidMemoryCode;
 
 // ═══════════════════════════════════════════════════════════════
 // 2. نظام التعلم بالتصويت - learnedPatterns
@@ -676,44 +685,14 @@ app.post('/api/lookup', (req, res) => {
 });
 
 // === التحقق إن الكود يشبه كود ذاكرة حقيقي ===
-function looksLikeMemoryCode(code) {
-    if (!code || code.length < 4) return false;
-    const upper = code.toUpperCase().trim();
-    // أكواد Samsung
-    if (/^KM[A-Z]/.test(upper)) return true;
-    if (/^KLM/.test(upper)) return true;
-    if (/^KLU/.test(upper)) return true;
-    // SK Hynix
-    if (/^H9/.test(upper)) return true;
-    if (/^H2[6-8]/.test(upper)) return true;
-    if (/^HN/.test(upper)) return true;
-    // Toshiba
-    if (/^THG/.test(upper)) return true;
-    // SanDisk
-    if (/^SDI/.test(upper)) return true;
-    if (/^SDA/.test(upper)) return true;
-    // Micron
-    if (/^JW/.test(upper)) return true;
-    if (/^JZ/.test(upper)) return true;
-    // YMEC
-    if (/^TY[A-Z0-9]/.test(upper)) return true;
-    // UNIC
-    if (/^(08|16)EMCP/.test(upper)) return true;
-    // أكواد عامة تحتوي على أرقام وحروف مختلطة وطولها 8+
-    if (upper.length >= 8 && /[A-Z]/.test(upper) && /[0-9]/.test(upper)) {
-        // لو فيه أرقام وحروف مختلطة بنسبة معقولة
-        const letters = (upper.match(/[A-Z]/g) || []).length;
-        const digits = (upper.match(/[0-9]/g) || []).length;
-        if (letters >= 2 && digits >= 2) return true;
-    }
-    return false;
-}
+// looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
-// /api/candidates - Candidate Generator (RAG Light)
-// يرجع أقرب 10 أكواد من الجداول لكود معين
+// /api/candidates - DISABLED (Dead Code - v21 cleanup)
+// الدالة الداخلية getCandidatesForCode لسه شغالة جوه /api/analyze
 // ═══════════════════════════════════════════════════════════════
+/* DISABLED v21
 app.post('/api/candidates', (req, res) => {
     try {
         const { code } = req.body;
@@ -761,13 +740,11 @@ app.post('/api/candidates', (req, res) => {
         return res.json({ candidates: [] });
     }
 });
+DISABLED v21 END */
 
 // ═══════════════════════════════════════════════════════════════
-// /api/analyze - v20: True RAG + Confidence Scoring + Validation Gate
-// Step 1: Gemini يقرأ الكود من الصورة
-// Step 2: نجيب candidates من الجداول
-// Step 3: Gemini يختار الأقرب من candidates (selector)
-// Step 4: Confidence scoring + validation
+// /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
+// Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
 // ═══════════════════════════════════════════════════════════════
 
 app.post('/api/analyze', async (req, res) => {
@@ -775,10 +752,10 @@ app.post('/api/analyze', async (req, res) => {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        // كاش على مستوى الصورة الكاملة
+        // كاش على مستوى الصورة
         const imgHash = imageHash(imageBase64);
         if (imageResultCache[imgHash] && imageResultCache[imgHash].finalResult && (Date.now() - imageResultCache[imgHash].timestamp < 600000)) {
-            console.log('⚡ نفس الصورة - رجعنا النتيجة من الكاش فوراً');
+            console.log('⚡ نفس الصورة - كاش فوري');
             const cached = imageResultCache[imgHash].finalResult;
             cached.confidence = 99;
             return res.json(cached);
@@ -787,87 +764,99 @@ app.post('/api/analyze', async (req, res) => {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // ═══════════════════════════════════════════════════════
-        // STEP 1: Gemini يقرأ الكود من الصورة (قراءة فقط)
+        // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
         // ═══════════════════════════════════════════════════════
-        const readPrompt = `You are an expert at reading memory chip codes from circuit board images.
+        const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
 
-Your ONLY job: Read the memory chip code printed on the chip.
-
-Memory chip = the large black chip with codes starting with:
-Samsung: KM/KLM/KLU | SK Hynix: H9/H26/H28 | Toshiba: THG | SanDisk: SDIN | Micron: JW/JZ | YMEC/TY | UNIC: 08EMCP/16EMCP
-
+STEP 1 - READ: Find the memory chip (large black chip) and read its code.
+Memory chips start with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP
 IGNORE: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (processor) + PM/WCD/WCN (power)
+Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
 
-Rules:
-- Read the code EXACTLY as printed
-- Correct obvious misreads (O↔0, B↔8, S↔5, I↔1)
-- Do NOT classify, just READ the code
+STEP 2 - CLASSIFY using these rules:
+Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
+  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
+Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
+Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
+SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
+  RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
+SK Hynix H26 (زجاجي eMMC) | H28 (زجاجي UFS)
+Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
+YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
+UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
+Micron JW/JZ (زجاجي)
 
-Return JSON only: {"code":"THE_CODE"}
-If no memory chip: {"code":"NOT_FOUND"}`;
+Return JSON ONLY:
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
+If no memory chip found: {"code":"NOT_FOUND"}`;
 
         let rawCode = '';
-        let geminiConfidence = 0;
+        let geminiStorage = '';
+        let geminiType = '';
+        let geminiCompany = '';
+        let geminiRam = null;
+
         try {
             const geminiResult = await model.generateContent({
                 contents: [{ parts: [
                     { inlineData: { mimeType: 'image/jpeg', data: imageBase64 } },
-                    { text: readPrompt }
+                    { text: singlePrompt }
                 ]}],
                 generationConfig: { temperature: 0 }
             });
             let geminiText = geminiResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-            console.log('📖 Gemini Step1 قرأ:', geminiText);
+            console.log('🧠 Gemini Single-Pass:', geminiText);
             
-            let readParsed = null;
+            let parsed = null;
             try {
-                readParsed = JSON.parse(geminiText);
+                parsed = JSON.parse(geminiText);
             } catch(e1) {
                 const jsonMatch = geminiText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
-                readParsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
             }
             
-            if (readParsed && readParsed.code) {
-                rawCode = cleanReadCode(readParsed.code);
-                geminiConfidence = 70; // Gemini قرأ كود
+            if (parsed && parsed.code) {
+                rawCode = cleanReadCode(parsed.code);
+                geminiStorage = parsed.storage || '';
+                geminiType = parsed.type || '';
+                geminiCompany = parsed.company || '';
+                geminiRam = parsed.ram || null;
             }
         } catch (geminiErr) {
-            console.error('Gemini Step1 فشل:', geminiErr.message);
+            console.error('Gemini Single-Pass فشل:', geminiErr.message);
             throw geminiErr;
         }
 
         // ═══════════════════════════════════════════════════════
-        // VALIDATION GATE 1: هل الكود صالح؟
+        // VALIDATION GATE: هل الكود صالح؟
         // ═══════════════════════════════════════════════════════
         if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3 && !isValidMemoryCode(rawCode)) {
             console.log('🚫 Validation Gate: كود مش صالح "' + rawCode + '"');
             rawCode = '';
-            geminiConfidence = 0;
         }
 
         if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
-            // Gemini مشفش كود - نرجع فوراً
             const noResult = { code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'no_code', confidence: 0 };
             imageResultCache[imgHash] = { finalResult: noResult, timestamp: Date.now() };
             return res.json(noResult);
         }
 
         // ═══════════════════════════════════════════════════════
-        // STEP 2: بحث في الكاش والجداول (أسرع من Gemini)
+        // FAST DB LOOKUP: بحث سريع في الجداول (أسرع من Gemini وأدق)
         // ═══════════════════════════════════════════════════════
         
-        // 2a: كاش exact match
+        // Exact match
         const dbResult = lookupCode(rawCode, learnedCodes);
         if (dbResult && dbResult.storage && dbResult.type) {
             dbResult.step = 'db_exact';
             dbResult.confidence = 95;
-            console.log('✅ DB exact match:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
+            console.log('✅ DB exact:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
             setCache(rawCode, dbResult);
             imageResultCache[imgHash] = { finalResult: dbResult, timestamp: Date.now() };
             return res.json(dbResult);
         }
         
-        // 2b: errorMemory fix
+        // ErrorMemory fix
         const fixed = applyErrorMemoryFixes(rawCode.toUpperCase());
         if (fixed !== rawCode.toUpperCase()) {
             const fixedResult = lookupCode(fixed, learnedCodes);
@@ -875,14 +864,14 @@ If no memory chip: {"code":"NOT_FOUND"}`;
                 fixedResult.step = 'db_errorfix';
                 fixedResult.confidence = 90;
                 fixedResult.suggestion = 'قرأته ' + rawCode + ' وصححته لـ ' + fixed;
-                console.log('✅ ErrorMemory fix:', rawCode, '→', fixed);
+                console.log('✅ ErrorFix:', rawCode, '→', fixed);
                 setCache(rawCode, fixedResult);
                 imageResultCache[imgHash] = { finalResult: fixedResult, timestamp: Date.now() };
                 return res.json(fixedResult);
             }
         }
 
-        // 2c: fuzzy search → لو لقى exact-ish (distance < 1.5) نقبله
+        // Fuzzy match (distance < 1.5)
         const fuzzy = fuzzySearchInDB(rawCode);
         if (fuzzy && fuzzy.distance <= 1.5) {
             const fuzzyResult = {
@@ -891,22 +880,19 @@ If no memory chip: {"code":"NOT_FOUND"}`;
                 suggestion: 'قرأته ' + rawCode + ' وأقرب كود ' + fuzzy.code,
                 step: 'db_fuzzy', confidence: 85
             };
-            console.log('✅ Fuzzy match (dist=' + fuzzy.distance + '):', rawCode, '→', fuzzy.code);
+            console.log('✅ Fuzzy (dist=' + fuzzy.distance + '):', rawCode, '→', fuzzy.code);
             setCache(rawCode, fuzzyResult);
             imageResultCache[imgHash] = { finalResult: fuzzyResult, timestamp: Date.now() };
             return res.json(fuzzyResult);
         }
 
         // ═══════════════════════════════════════════════════════
-        // STEP 3: True RAG - Candidates + Gemini Selector
-        // الكود مش في الجداول بالظبط → Gemini يختار من candidates
+        // RAG SELECTOR: لو DB ملقاش → Gemini يختار من candidates
+        // (طلب Gemini تاني بس بدون صورة = أسرع بكتير)
         // ═══════════════════════════════════════════════════════
-        
-        // جيب candidates (أقرب 10 أكواد)
         const candidates = getCandidatesForCode(rawCode);
         
         if (candidates.length > 0) {
-            // Gemini يختار الأقرب من candidates
             const candidateList = candidates.map((c, i) => 
                 (i+1) + '. ' + c.code + ' → ' + c.storage + 'GB ' + c.type + ' (' + c.company + ')'
             ).join('\n');
@@ -920,12 +906,7 @@ ${candidateList}
 
 Your job:
 1. Choose the BEST match (considering OCR misread corrections: O↔0, B↔8, S↔5, I↔1, G↔6, Z↔2)
-2. If none match well, classify using these rules:
-   Samsung KM (عادي): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
-   Samsung KLM (زجاجي): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
-   Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-   SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
-   Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
+2. If none match well, classify using the code structure rules.
 
 Return JSON only:
 {"code":"CORRECT_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","matched_from_list":true/false}`;
@@ -936,7 +917,7 @@ Return JSON only:
                     generationConfig: { temperature: 0 }
                 });
                 let selectText = selectResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-                console.log('🎯 Gemini Selector:', selectText);
+                console.log('🎯 RAG Selector:', selectText);
                 
                 let selected = null;
                 try {
@@ -950,92 +931,51 @@ Return JSON only:
                     if (!selected.ram) selected.ram = extractRam(selected.code);
                     if (!selected.company) selected.company = detectCompany(selected.code);
                     
-                    // CONFIDENCE SCORING
-                    let confidence = 60; // base
-                    if (selected.matched_from_list === true) confidence = 85; // اختار من القائمة
-                    // لو الكود اللي اختاره موجود فعلاً في الجداول
+                    let confidence = 60;
+                    if (selected.matched_from_list === true) confidence = 85;
                     const verifyDB = lookupCode(selected.code, learnedCodes);
-                    if (verifyDB) confidence = 92; // DB verified
+                    if (verifyDB) confidence = 92;
                     
-                    // VALIDATION GATE 2
                     if (selected.code && isValidMemoryCode(selected.code) && selected.storage && selected.type) {
                         selected.step = 'rag_selector';
                         selected.confidence = confidence;
                         selected.suggestion = 'قرأته ' + rawCode + (selected.code !== rawCode ? ' واختار ' + selected.code : '');
-                        console.log('✅ RAG Selector (conf=' + confidence + '):', selected);
+                        console.log('✅ RAG (conf=' + confidence + '):', selected);
                         setCache(rawCode, selected);
                         imageResultCache[imgHash] = { finalResult: selected, timestamp: Date.now() };
                         return res.json(selected);
                     }
                 }
             } catch (selErr) {
-                console.error('Gemini Selector فشل:', selErr.message);
-                // نكمل للـ fallback
+                console.error('RAG Selector فشل:', selErr.message);
             }
         }
 
         // ═══════════════════════════════════════════════════════
-        // STEP 4: Fallback - Gemini يصنف بالقواعد مباشرة
+        // GEMINI DIRECT: لو كل حاجة فشلت → ناخد تصنيف Gemini الأصلي
         // ═══════════════════════════════════════════════════════
-        const classifyPrompt = `You are an expert memory chip classifier.
-
-Code read from chip: "${rawCode}"
-
-Classify using these rules:
-Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
-  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
-Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
-  RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
-SK Hynix H26 (زجاجي EMMC) | H28 (زجاجي UFS)
-Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
-YMEC (زجاجي): char 5 after YMEC → 6/G=32|7=64|8/B=128|9=256
-UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
-Micron JW/JZ (زجاجي)
-
-Return JSON only:
-{"code":"${rawCode}","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}`;
-
-        try {
-            const classifyResult = await model.generateContent({
-                contents: [{ parts: [{ text: classifyPrompt }] }],
-                generationConfig: { temperature: 0 }
-            });
-            let classifyText = classifyResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-            console.log('📋 Gemini Classify:', classifyText);
-            
-            let classified = null;
-            try {
-                classified = JSON.parse(classifyText);
-            } catch(e1) {
-                const jsonMatch = classifyText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
-                classified = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-            }
-            
-            if (classified && classified.storage && classified.type) {
-                if (!classified.ram) classified.ram = extractRam(classified.code || rawCode);
-                if (!classified.company) classified.company = detectCompany(classified.code || rawCode);
-                classified.code = classified.code || rawCode;
-                classified.step = 'gemini_classify';
-                classified.confidence = 65; // Gemini بدون DB verification
-                console.log('✅ Gemini Classify (conf=65):', classified);
-                setCache(rawCode, classified);
-                imageResultCache[imgHash] = { finalResult: classified, timestamp: Date.now() };
-                return res.json(classified);
-            }
-        } catch (classErr) {
-            console.error('Gemini Classify فشل:', classErr.message);
+        if (geminiStorage && geminiType) {
+            // Gemini صنف في الطلب الأول خلاص - نستخدم تصنيفه
+            const geminiDirect = {
+                code: rawCode, storage: geminiStorage, type: geminiType,
+                company: geminiCompany || detectCompany(rawCode),
+                ram: geminiRam || extractRam(rawCode),
+                step: 'gemini_direct', confidence: 65
+            };
+            console.log('✅ Gemini Direct (conf=65):', geminiDirect);
+            setCache(rawCode, geminiDirect);
+            imageResultCache[imgHash] = { finalResult: geminiDirect, timestamp: Date.now() };
+            return res.json(geminiDirect);
         }
 
         // ═══════════════════════════════════════════════════════
-        // STEP 5: آخر حاجة - نرجع الكود بدون تصنيف
+        // PARTIAL: كود بدون تصنيف
         // ═══════════════════════════════════════════════════════
         const finalResult = {
             code: rawCode, storage: '', type: '', company: detectCompany(rawCode),
             ram: null, step: 'partial', confidence: 30
         };
-        console.log('⚠️ Partial result:', finalResult);
+        console.log('⚠️ Partial:', finalResult);
         setCache(rawCode, finalResult);
         imageResultCache[imgHash] = { finalResult, timestamp: Date.now() };
         res.json(finalResult);
