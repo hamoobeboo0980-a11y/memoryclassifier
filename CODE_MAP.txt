@@ -1,0 +1,105 @@
+═══════════════════════════════════════════════════════════════
+ملخص كامل لبنية server.js (1500 سطر) - مرجع دائم
+═══════════════════════════════════════════════════════════════
+
+[سطر 1-14] الإعدادات: express, path, fs, GoogleGenerativeAI, PORT=8080, genAI, app.use
+
+[سطر 15-23] الداتابيز: NORMAL_DB, EMMC_DB, MICRON_DB (كلهم objects ثابتة)
+
+[سطر 28-64] extractRam(): SAMSUNG_RAM_MAP, HYNIX_RAM_MAP
+
+[سطر 70-192] searchInDB(code): 11 خطوة بحث:
+  1. NORMAL_DB مباشر
+  2. EMMC_DB مباشر
+  3. MICRON_DB مباشر
+  4. Samsung EMMC (KLM/KLU)
+  5. Samsung عادي (KM)
+  6. SK Hynix عادي (H9TQ/H9HP/H9HQ)
+  7a. SK Hynix EMMC (H26/H28)
+  7b. SK Hynix EMMC (HNST/HN8T)
+  8. Toshiba (THG)
+  9. SanDisk (SDIN)
+  10. YMEC
+  11. بحث عام بالحرف + الرقم
+
+[سطر 194-204] detectCompany(code): Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC
+
+[سطر 213-277] كاش JSONBin:
+  JBIN_MASTER, JBIN_CACHE_ID='69c3b790b7ec241ddc9fc484'
+  resultCache={}, loadCacheFromCloud(), saveCache() مع debounce 3 ثواني
+
+[سطر 285-295] isValidMemoryCode(code): فلتر الأكواد الصالحة
+
+[سطر 300-350] learnedPatterns:
+  JBIN_PATTERNS_ID='69c3b790b7ec241ddc9fc485'
+  loadPatternsFromCloud(), savePatternsToCloud(), learnPattern()
+
+[سطر 355-405] safeOCR + Hash:
+  ocrCache={}, imageResultCache={}
+  simpleHash(), imageHash(), ocrHash(), safeOCR(model, base64, prompt)
+
+[سطر 407-476] getCached(code): 5 طرق بحث (دقيق، بدون شرطة، أول 10، جزئي، fuzzy)
+  setCache(code, result)
+
+[سطر 479-544] fuzzySearchInDB(code): weighted Levenshtein مع COMMON_SWAPS
+
+[سطر 546-850 تقريباً] /api/analyze POST:
+  - imageResultCache check
+  - Step 0: safeOCR → cleanReadCode → lookupCode → fuzzySearchInDB
+  - المحاولة الأولى (fast): Gemini prompt سريع → lookupCode
+  - المحاولة التانية (careful): Gemini prompt مفصل → lookupCode
+  - لو فشل كل حاجة: يرجع step0BestCode كـ code بدون storage
+
+[سطر 850-950 تقريباً] lookupCode(code, learnedCodes):
+  1. getCached
+  2. searchInDB
+  3. learnedPatterns (votes >= 1)
+  4. fuzzySearchInDB
+  5. learnedCodes من الفرونت
+
+[سطر 950-1050 تقريباً] /api/correct POST:
+  يستقبل code, storage, type, ram, company, originalCode
+  يحفظ في resultCache + learnedPatterns
+
+[سطر 1050-1200 تقريباً] cleanReadCode(raw): تنظيف الكود المقروء
+
+[سطر 1200-1350 تقريباً] findCodeEverywhere(text, learnedCodes):
+  يدور على أكواد في نص طويل
+
+[سطر 1350-1500] /api/chat POST:
+  - customRules (JBIN_RULES_ID='684c4e598960c979a5a0f0c7')
+  - intent detection: list/delete/train/rule/question
+  - Gemini chat مع system prompt
+  - [TRAIN] و [RULE] tags
+
+[سطر 1494-1500] app.get('*') → index.html, app.listen(PORT)
+
+═══════════════════════════════════════════════════════════════
+ملخص index.html (2428 سطر) - الأجزاء المهمة
+═══════════════════════════════════════════════════════════════
+
+[سطر 1234-1352] analyzeImage(base64, previewSrc):
+  - يبعت POST /api/analyze مع imageBase64 + learnedCodes
+  - لو parsed.storage && parsed.type → displayResult + أزرار صح/غلط
+  - لو مفيش → يعرض فورم تصحيح
+
+[سطر 2013-2097] analyzeFrame():
+  - فحص جودة الصورة (حدة، ثبات، إضاءة)
+  - لما يوصل 100% يقول "جاهز اضغط صوّر"
+
+[سطر 2099-2145] tapCapture() + captureAndAnalyze():
+  - ImageCapture.takePhoto() أو Canvas fallback
+  - يبعت لـ analyzeImage()
+
+[سطر 1354-1379] searchManual():
+  - بحث يدوي بالكود - كاش أولاً ثم searchInDB
+
+═══════════════════════════════════════════════════════════════
+التعديلات المطلوبة:
+═══════════════════════════════════════════════════════════════
+
+1. server.js: إضافة /api/lookup endpoint (يستقبل كود نص → يدور في كل المصادر بدون Gemini)
+2. server.js: إضافة errorMemory (يحفظ أخطاء OCR الشائعة ويصححها تلقائي)
+3. server.js: تبسيط /api/analyze (Gemini مرة واحدة بس كـ fallback)
+4. index.html: إضافة Tesseract.js (قراءة محلية في المتصفح)
+5. index.html: تعديل analyzeImage لتجرب Tesseract أولاً ثم /api/lookup ثم /api/analyze

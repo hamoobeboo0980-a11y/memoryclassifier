@@ -1,0 +1,23 @@
+نتائج اختبار v17 - Tesseract + Lookup + ErrorMemory
+=====================================================
+
+1. الموقع الحي: ✅ شغال (HTTP 200)
+   URL: https://memoryclassifier-production.up.railway.app/
+
+2. /api/lookup (بحث سريع بالكود):
+   - كود في الداتابيز (KMX60013M): ✅ لقاه فوراً → Samsung 32GB عادي + 2GB RAM (source: db)
+   - كود مش موجود (ABCXYZ123): ✅ رجع found:false
+   - كود في الكاش (KLMAG1JETD): ✅ لقاه بـ fuzzy → Samsung 32GB زجاجي (source: fast_fast_gemini)
+
+3. الشات:
+   - عرض المحفوظات: ✅ عرض 58 كود في الكاش + 0 أكواد متعلمة + 0 قواعد
+   - تعليم قاعدة: ✅ "لما تلاقي N11 في كود Kingston يبقى DDR3" → تم الحفظ على السحابة
+   - عرض القواعد: ✅ عرض القاعدة المحفوظة
+   - سؤال عادي: ✅ Gemini رد بشرح مفصل عن الفرق بين eMMC و UFS
+   - مصدر المعلومة: ✅ كل رد فيه source (system/gemini)
+
+4. /api/analyze (Gemini): لم يتم اختبار بصورة (يحتاج كاميرا)
+   - تم تبسيطه من 3 استدعاءات Gemini إلى استدعاء واحد
+
+5. Tesseract.js: لم يتم اختبار (يحتاج كاميرا في المتصفح)
+   - تم إضافته في index.html كمرحلة أولى قبل Gemini

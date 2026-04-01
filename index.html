@@ -3,7 +3,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>مصنّف الذاكرة</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&amp;display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   
@@ -181,7 +180,7 @@
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    width: 25%; aspect-ratio: 1.2;
+    width: 65%; aspect-ratio: 1.2;
     border: 2px solid rgba(0,212,255,0.6);
     border-radius: 8px;
     box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
@@ -1232,14 +1231,6 @@ function searchInDB(code) {
 }
 
 
-// === إعادة تشغيل الكاميرا بعد التحليل ===
-function unfreezeCamera() {
-  var video = document.getElementById('video');
-  if (video && video.srcObject) {
-    video.srcObject.getTracks().forEach(function(t) { t.enabled = true; });
-  }
-}
-
 async function analyzeImage(base64, previewSrc) {
   if (isAnalyzing) return;
   isAnalyzing = true;
@@ -1253,9 +1244,11 @@ async function analyzeImage(base64, previewSrc) {
 
 
 
-  // ===== Gemini مباشرة (بدون Tesseract - أسرع!) =====
+  // ===== المرحلة الأولى: اقرأ الكود من الصورة عبر السيرفر =====
+  // API key محفوظ على السيرفر فقط - مش ظاهر هنا
+
   try {
-    console.log('بنبعت لـ Gemini مباشرة...');
+    // إرسال الصورة + الأكواد المتعلمة للـ Server
     var geminiRes = await fetch('/api/analyze', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -1271,7 +1264,6 @@ async function analyzeImage(base64, previewSrc) {
       showLoading(false);
       showError('❌ ' + (errData.error || 'فشل التحليل - جرب تاني'));
       isAnalyzing = false;
-      unfreezeCamera();
       return;
     }
 
@@ -1288,7 +1280,7 @@ async function analyzeImage(base64, previewSrc) {
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
 
-    // لو ما لقاش كود
+    // لو ما لقاش كود - السيرفر جرب مرتين (سريعة + بعناية) ومش لاقي
     if (!detectedCode || !isValidCode(detectedCode)) {
       stopLEDAnimation();
       lightLED('failed');
@@ -1297,7 +1289,6 @@ async function analyzeImage(base64, previewSrc) {
       addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
       showError('❌ مش شايف كود ذاكرة');
       isAnalyzing = false;
-      unfreezeCamera();
       return;
     }
 
@@ -1332,7 +1323,6 @@ async function analyzeImage(base64, previewSrc) {
       var cacheInfo = isFromCache ? ' ⚡من الكاش' : '';
       addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + cacheInfo + ' - صح ولا غلط؟', 'bot');
       isAnalyzing = false;
-      unfreezeCamera();
       if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       return;
     }
@@ -1358,7 +1348,6 @@ async function analyzeImage(base64, previewSrc) {
   }
 
   isAnalyzing = false;
-  unfreezeCamera();
   if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
 }
 
@@ -2111,13 +2100,6 @@ function analyzeFrame() {
 function tapCapture() {
   if (!stream || !cameraActive || isAnalyzing) return;
   stopAutoAnalysis();
-  
-  // === تجميد الكاميرا على الصورة ===
-  var video = document.getElementById('video');
-  if (video && video.srcObject) {
-    video.srcObject.getTracks().forEach(function(t) { t.enabled = false; });
-  }
-  
   // تأثير بصري - فلاش أبيض
   var wrapper = document.getElementById('cameraWrapper');
   if (wrapper) {
@@ -2132,56 +2114,33 @@ async function captureAndAnalyze() {
   var canvas = document.getElementById('canvas');
   if (!video || !canvas) return;
 
-  // === قص الصورة على مربع التركيز فقط ===
-  function cropToFocusBox(sourceCanvas, videoW, videoH) {
-    // مربع التركيز: width=25%, aspect-ratio=1.2, في المنتصف
-    var boxW = videoW * 0.25;
-    var boxH = boxW / 1.2;
-    var boxX = (videoW - boxW) / 2;
-    var boxY = (videoH - boxH) / 2;
-    
-    var cropCanvas = document.createElement('canvas');
-    cropCanvas.width = boxW;
-    cropCanvas.height = boxH;
-    var cropCtx = cropCanvas.getContext('2d');
-    cropCtx.drawImage(sourceCanvas, boxX, boxY, boxW, boxH, 0, 0, boxW, boxH);
-    return cropCanvas;
-  }
-
-  var ctx = canvas.getContext('2d');
-  var w = video.videoWidth || 1280;
-  var h = video.videoHeight || 720;
-  canvas.width = w;
-  canvas.height = h;
-
   // لو ImageCapture متاح → صورة بدقة الكاميرا الكاملة
   if (imageCapture) {
     try {
       var blob = await imageCapture.takePhoto();
-      var img = new Image();
-      img.onload = function() {
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
-        var cropped = cropToFocusBox(canvas, img.width, img.height);
-        var base64 = cropped.toDataURL('image/jpeg', 1.0);
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var base64 = e.target.result;
         var imageData = base64.split(',')[1];
-        console.log('📸 تم التقاط + قص على مربع التركيز (ImageCapture)');
         analyzeImage(imageData, base64);
       };
-      img.src = URL.createObjectURL(blob);
+      reader.readAsDataURL(blob);
+      console.log('📸 تم التقاط بـ ImageCapture (دقة كاملة)');
       return;
     } catch(e) {
       console.log('ImageCapture فشل، هيستخدم Canvas:', e);
     }
   }
 
-  // Fallback: Canvas
+  // Fallback: Canvas بالدقة الفعلية للفيديو
+  var ctx = canvas.getContext('2d');
+  var w = video.videoWidth || 1280;
+  var h = video.videoHeight || 720;
+  canvas.width = w;
+  canvas.height = h;
   ctx.drawImage(video, 0, 0, w, h);
-  var cropped = cropToFocusBox(canvas, w, h);
-  var base64 = cropped.toDataURL('image/jpeg', 1.0);
+  var base64 = canvas.toDataURL('image/jpeg', 1.0);
   var imageData = base64.split(',')[1];
-  console.log('📸 تم التقاط + قص على مربع التركيز (Canvas)');
   analyzeImage(imageData, base64);
 }
 
@@ -2409,40 +2368,10 @@ async function processChat(userMsg) {
       })
     });
     var chatData = await chatRes.json();
-    // امسح رسالة "جاري التفكير"
+    // امسح رسالة "جاري التفكير" واعرض الرد الحقيقي
     var msgs = document.getElementById('chatMessages');
     if (msgs && msgs.lastChild) msgs.removeChild(msgs.lastChild);
-    
-    // عرض الرد مع مصدر المعلومة
-    var replyText = chatData.reply || '❓ مش فاهم - قولي المساحة والنوع';
-    var sourceLabel = '';
-    if (chatData.source === 'cache') sourceLabel = '📦 من الكاش';
-    else if (chatData.source === 'correction') sourceLabel = '🧠 من التدريب (تصحيح)';
-    else if (chatData.source === 'learned') sourceLabel = '🧠 من التدريب';
-    else if (chatData.source === 'db') sourceLabel = '📊 من الجدول';
-    else if (chatData.source === 'pattern') sourceLabel = '🔄 من الأنماط';
-    else if (chatData.source === 'gemini') sourceLabel = '🤖 من Gemini';
-    else if (chatData.source === 'system') sourceLabel = '⚙️ النظام';
-    
-    // لو فيه action خاص - أضف تأكيد
-    if (chatData.action === 'trained') {
-      replyText += '\n\n✅ تم الحفظ على السحابة - مش هنساها أبداً';
-    } else if (chatData.action === 'rule_saved') {
-      replyText += '\n\n📚 تم حفظ القاعدة على السحابة ✅';
-    } else if (chatData.action === 'deleted') {
-      // لو اتمسح كود - امسحه من cloudLearned كمان
-      if (chatData.deletedCode) {
-        var delIdx = cloudLearned.findIndex(function(x){ return x.code && x.code.toUpperCase() === chatData.deletedCode.toUpperCase(); });
-        if (delIdx >= 0) {
-          cloudLearned.splice(delIdx, 1);
-          localStorage.setItem('ic_learned', JSON.stringify(cloudLearned));
-          jbinSave(cloudLearned);
-          replyText += '\n+ تم المسح من الأكواد المتعلمة كمان';
-        }
-      }
-    }
-    
-    addChatMsg('المساعد', replyText, 'bot');
+    addChatMsg('المساعد', chatData.reply || '❓ مش فاهم - قولي المساحة والنوع', 'bot');
   } catch(chatErr) {
     addChatMsg('المساعد', '❓ الكود: ' + (currentCode || '?') + ' - قولي المساحة والنوع (مثال: 64 زجاجي)', 'bot');
   }

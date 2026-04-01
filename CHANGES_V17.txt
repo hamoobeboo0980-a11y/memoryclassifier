@@ -1,0 +1,35 @@
+التعديلات في v17:
+
+=== server.js ===
+1. إضافة /api/lookup endpoint (سطر ~615-680) - بحث سريع بالكود بدون صورة
+   - يستقبل { code, learnedCodes }
+   - يدور في: كاش → تصحيحات → errorMemory → داتابيز → أنماط → fuzzy
+   - يرجع { found: true/false, source, code, storage, type, company, ram }
+
+2. إضافة errorMemory (سطر ~549-610) - ذاكرة أخطاء OCR
+   - JBIN_ERRMEM_ID = '69cc4ef0856a682189e95b90'
+   - loadErrorMemory() + saveErrorMemory()
+   - applyErrorMemoryFixes(code) - يصحح الكود بناءً على أخطاء سابقة
+   - learnOCRError(wrong, correct) - يتعلم خطأ جديد
+
+3. تبسيط /api/analyze - Gemini مرة واحدة بس
+   - شيلنا step0 + fast + careful (3 محاولات)
+   - حطينا prompt واحد يقرأ ويصنف في نفس الوقت
+   - لو Gemini رجع تصنيف كامل → يستخدمه مباشرة
+   - لو رجع كود بس → يدور في الداتابيز + fuzzy
+
+4. تحديث /api/correct - يتعلم أخطاء OCR تلقائي
+   - لو الكود الغلط مختلف عن الصح → learnOCRError()
+
+=== index.html ===
+1. إضافة Tesseract.js CDN (سطر 6)
+2. تعديل analyzeImage:
+   - المرحلة 1: Tesseract.js يقرأ محلياً → /api/lookup يدور سريع
+   - لو لقى → يرجع فوراً (بدون Gemini!)
+   - المرحلة 2: لو فشل → يبعت لـ Gemini كـ fallback (مرة واحدة بس)
+
+=== JBIN IDs ===
+- JBIN_CACHE_ID: 69c3b790b7ec241ddc9fc484
+- JBIN_LEARN_ID: 69c3b790b7ec241ddc9fc487 (learnedPatterns)
+- JBIN_ERRMEM_ID: 69cc4ef0856a682189e95b90 (errorMemory - جديد)
+- JBIN_RULES_ID: 69c71c29c3097a1dd56a4604 (customRules)

@@ -1,0 +1,64 @@
+═══ /api/analyze الحالي (سطر 546-849) ═══
+المسار: POST /api/analyze
+المدخلات: { imageBase64, learnedCodes }
+
+الخطوات الحالية:
+1. كاش الصورة (imageResultCache) - لو نفس الصورة → رد فوراً
+2. Step 0: safeOCR → cleanReadCode → lookupCode → fuzzySearchInDB
+3. المحاولة الأولى (fast): Gemini fastPrompt → lookupCode
+4. المحاولة التانية (careful): Gemini carefulPrompt → lookupCode → fuzzySearchInDB
+5. Gemini يحلل بنفسه: analyzePrompt → JSON response
+
+═══ lookupCode (سطر 875-931) ═══
+1. getCached(cleanCode)
+2. learnedCodes corrections (item.corrected)
+3. searchInDB(cleanCode)
+4. learnedCodes normal
+5. learnedPatterns (votes >= 1, أول 10 حروف)
+
+═══ /api/correct (سطر 979-1016) ═══
+يحفظ التصحيح في resultCache + learnedPatterns + errorLog
+
+═══ /api/confirm (سطر 937-952) ═══
+يحفظ التأكيد في resultCache + learnedPatterns
+
+═══ /api/chat (سطر 1030-نهاية) ═══
+detectIntent → list/delete/teach_rule/error_source/list_rules/train/question
+Gemini chat مع system prompt + customRules
+
+═══ الدوال المساعدة ═══
+- searchInDB(code): 11 خطوة بحث في NORMAL_DB + EMMC_DB + MICRON_DB + patterns
+- detectCompany(code): Samsung/Hynix/Toshiba/SanDisk/Micron/YMEC/UNIC
+- extractRam(code): SAMSUNG_RAM_MAP + HYNIX_RAM_MAP
+- getCached(code): 5 طرق (دقيق، بدون شرطة، أول 10، جزئي، fuzzy)
+- setCache(code, result): يحفظ في resultCache
+- fuzzySearchInDB(code): weighted Levenshtein مع COMMON_SWAPS
+- cleanReadCode(code): تنظيف الكود (Micron JZ/JW, Samsung KM/KLM/KLU, etc)
+- isValidMemoryCode(code): فلتر الأكواد الصالحة
+- safeOCR(model, base64, prompt): OCR مع ocrCache
+- imageHash(base64): هاش للصورة
+- learnPattern(code, storage, type, ram): حفظ نمط في learnedPatterns
+- findCodeEverywhere(text, learnedCodes): بحث في نص طويل
+
+═══ التعديلات المطلوبة ═══
+1. إضافة /api/lookup: يستقبل كود نص → lookupCode + fuzzy بدون Gemini
+2. إضافة errorMemory: يحفظ أخطاء OCR الشائعة ويصححها
+3. تبسيط /api/analyze: Gemini مرة واحدة بس (دمج step0 + fast + careful في prompt واحد)
+4. index.html: إضافة Tesseract.js + المسار الجديد (Tesseract → /api/lookup → /api/analyze)
+
+
+═══ /api/chat كامل (سطر 1174-1492) ═══
+- detectIntent → list/delete/teach_rule/error_source/list_rules/chat
+- findCodeEverywhere → cache/correction/db/learned/pattern
+- Gemini chat مع system prompt شامل
+- [TRAIN] و [RULE] tags لاستخراج التدريب والقواعد
+
+═══ نهاية الملف (سطر 1494-1500) ═══
+app.get('*') → public/index.html
+app.listen(PORT=8080, '0.0.0.0')
+
+═══════════════════════════════════════════════════════════════
+الآن هبدأ أكتب التعديلات مباشرة:
+1. server.js: إضافة /api/lookup + errorMemory + تبسيط /api/analyze
+2. index.html: إضافة Tesseract.js + المسار الجديد
+═══════════════════════════════════════════════════════════════
