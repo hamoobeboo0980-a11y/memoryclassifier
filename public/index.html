@@ -1252,16 +1252,16 @@ async function analyzeImage(base64, previewSrc) {
   showError(false);
 
   // ═══════════════════════════════════════════════════════
-  // ACCURACY-FIRST HYBRID SYSTEM v22
-  // Gemini = Authority (الدقة) | Fast Engine = Accelerator (السرعة فقط)
+  // SPEED-FIRST HYBRID SYSTEM v23
+  // FAST = Primary UI (عرض فوري) | Gemini = Background Verification
   // ═══════════════════════════════════════════════════════
   var raceWon = false;
   var abortOCR = new AbortController();
   var abortGemini = new AbortController();
   var startTime = Date.now();
-  var ocrSuggestion = null;  // OCR مجرد اقتراح - مش حكم
+  var fastResult = null;     // نتيجة FAST للعرض الفوري
   var geminiDone = false;    // هل Gemini خلص؟
-  var geminiResult = null;   // نتيجة Gemini
+  var geminiResult = null;   // نتيجة Gemini للتحقق
 
   // Validation Gate - التحقق من صحة النتيجة
   function validateResult(parsed) {
@@ -1332,32 +1332,7 @@ async function analyzeImage(base64, previewSrc) {
     return true;
   }
 
-  // ACCURACY-FIRST RULE:
-  // - OCR نتيجته تتحفظ كاقتراح بس مش بتكسب لوحدها
-  // - Gemini هو المرجع الأساسي - لو جاب نتيجة بثقة عالية يكسب فوراً
-  // - OCR يكسب بس لو Gemini فشل أو مرجعش نتيجة
-  function handleOCRSuggestion(parsed) {
-    if (raceWon) return;
-    if (!validateResult(parsed)) return;
-    console.log('💡 OCR اقتراح: ' + (parsed.code || '') + ' conf=' + (parsed.confidence || 0));
-    ocrSuggestion = parsed;
-    // OCR مش بيكسب لوحده - بيستنى Gemini
-  }
 
-  function handleGeminiResult(parsed) {
-    if (raceWon) return false;
-    geminiDone = true;
-    geminiResult = parsed;
-    if (!validateResult(parsed)) return false;
-    var conf = parsed.confidence || 0;
-    console.log('🧠 Gemini نتيجة: ' + (parsed.code || '') + ' conf=' + conf);
-    
-    // Gemini بثقة عالية → يكسب فوراً (PRIMARY AUTHORITY)
-    if (conf >= 60 && parsed.storage && parsed.type) {
-      return submitWinner(parsed, 'Gemini');
-    }
-    return false;
-  }
 
   // ═══════════════════════════════════════════════════════
   // المسار 1: Tesseract.js OCR → تنظيف → DB Lookup (سريع)
@@ -1392,8 +1367,10 @@ async function analyzeImage(base64, previewSrc) {
             company: company, ram: localResult.ram || null,
             step: 'ocr_db', confidence: 92
           };
-          // OCR = اقتراح فقط - مش بيكسب لوحده
-          handleOCRSuggestion(result);
+          // FAST = Primary UI Path - يعرض فوراً!
+          fastResult = result;
+          submitWinner(result, 'FAST');
+          return result;
         }
       }
       return null;
@@ -1430,8 +1407,39 @@ async function analyzeImage(base64, previewSrc) {
       }
       
       if (parsed.code && isValidCode(parsed.code)) {
-        // Gemini = PRIMARY AUTHORITY
-        if (handleGeminiResult(parsed)) return parsed;
+        geminiDone = true;
+        geminiResult = parsed;
+        
+        // لو FAST لسه معرضش → Gemini يعرض هو (fallback)
+        if (!raceWon && parsed.storage && parsed.type) {
+          console.log('🧠 Gemini يعرض (FAST ملحقش)');
+          submitWinner(parsed, 'Gemini');
+          return parsed;
+        }
+        
+        // لو FAST عرض خلاص → Gemini يتحقق في الخلف (Post-Validation)
+        if (raceWon && fastResult) {
+          if (parsed.storage && parsed.type && parsed.code !== fastResult.code) {
+            console.log('🔄 Post-Validation: Gemini يقول ' + parsed.code + ' مش ' + fastResult.code);
+            // تسجيل التصحيح للتعلم
+            addChatMsg('المساعد', '🔄 Gemini صحح: ' + parsed.code + ' - ' + parsed.storage + 'GB ' + parsed.type + ' (كان ' + fastResult.code + ')', 'bot');
+            // تحديث العرض بنتيجة Gemini الأدق
+            lastParsed = parsed;
+            currentCode = parsed.code;
+            var manualInput = document.getElementById('manualCode');
+            if (manualInput) manualInput.value = parsed.code;
+            displayResult(parsed.code, {
+              storage: parsed.storage, type: parsed.type,
+              ram: parsed.ram || null,
+              capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
+            }, parsed.company);
+            var txt = document.getElementById('statusText');
+            var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            if (txt) txt.textContent = '🔄 Gemini صحح (' + elapsed + 's)';
+          } else {
+            console.log('✅ Post-Validation: Gemini وافق على FAST');
+          }
+        }
       }
       return parsed;
     } catch(e) {
@@ -1442,62 +1450,47 @@ async function analyzeImage(base64, previewSrc) {
   })();
 
   // ═══════════════════════════════════════════════════════
-  // EARLY RETURN: Gemini يكسب فوراً بدون انتظار OCR
+  // PARALLEL WAIT: الاتنين شغالين - FAST يكسب فوراً + Gemini يتحقق في الخلف
   // ═══════════════════════════════════════════════════════
   try {
-    // نستنى Gemini الأول (PRIMARY AUTHORITY)
-    var gResult = null;
-    try {
-      gResult = await geminiPromise;
-    } catch(e) {
-      console.log('Gemini promise error:', e.message);
-    }
-
-    // لو Gemini كسب جوه handleGeminiResult → خلاص raceWon = true
-    // لو لسه مكسبش → نشوف النتيجة هنا
+    // نستنى الاتنين يخلصوا - بس FAST ممكن يكسب في أي لحظة ويعرض فوراً
+    // Gemini بيكمل في الخلف للتحقق (Post-Validation)
+    await Promise.allSettled([ocrPromise, geminiPromise]);
+    
+    // لو محدش كسب لغاية دلوقتي → fallback
     if (!raceWon) {
-      // أولاً: لو Gemini جاب نتيجة كاملة → يكسب فوراً
-      if (gResult && !gResult.error && gResult.code && isValidCode(gResult.code) && gResult.storage && gResult.type) {
-        console.log('🧠 Early Return: Gemini يكسب (authority)');
-        submitWinner(gResult, 'Gemini');
+      // لو Gemini جاب نتيجة كاملة → يكسب
+      if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code) && geminiResult.storage && geminiResult.type) {
+        console.log('🧠 Fallback: Gemini يكسب');
+        submitWinner(geminiResult, 'Gemini');
       }
-      // ثانياً: لو Gemini جاب كود بس بدون تصنيف → يكسب برضو
-      else if (gResult && !gResult.error && gResult.code && isValidCode(gResult.code)) {
-        console.log('🧠 Early Return: Gemini partial');
-        submitWinner(gResult, 'Gemini');
+      // لو Gemini جاب كود بس بدون تصنيف
+      else if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code)) {
+        console.log('🧠 Fallback: Gemini partial');
+        submitWinner(geminiResult, 'Gemini');
       }
-      // ثالثاً: Gemini فشل → نستنى OCR كـ fallback
+      // لو Gemini فشل وفي error
+      else if (geminiResult && geminiResult.error) {
+        stopLEDAnimation();
+        lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
+        stopScanBar(false);
+        showLoading(false);
+        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
+        isAnalyzing = false;
+        unfreezeCamera();
+        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+      }
+      // مفيش حاجة خالص
       else {
-        console.log('⏳ Gemini فشل - نستنى OCR fallback...');
-        try { await ocrPromise; } catch(e) {}
-        
-        if (!raceWon) {
-          if (ocrSuggestion && ocrSuggestion.storage && ocrSuggestion.type) {
-            console.log('💡 OCR fallback (Gemini فشل)');
-            submitWinner(ocrSuggestion, 'OCR+DB (fallback)');
-          }
-          else if (gResult && gResult.error) {
-            stopLEDAnimation();
-            lightLED((gResult.data && gResult.data.step) || 'failed');
-            stopScanBar(false);
-            showLoading(false);
-            showError('❌ ' + ((gResult.data && gResult.data.error) || 'فشل التحليل - جرب تاني'));
-            isAnalyzing = false;
-            unfreezeCamera();
-            if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-          }
-          else {
-            stopLEDAnimation();
-            lightLED('failed');
-            stopScanBar(false);
-            showLoading(false);
-            addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-            showError('❌ مش شايف كود ذاكرة');
-            isAnalyzing = false;
-            unfreezeCamera();
-            if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-          }
-        }
+        stopLEDAnimation();
+        lightLED('failed');
+        stopScanBar(false);
+        showLoading(false);
+        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+        showError('❌ مش شايف كود ذاكرة');
+        isAnalyzing = false;
+        unfreezeCamera();
+        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       }
     }
   } catch(e) {
