@@ -1618,7 +1618,7 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
     }
 });
 
-app.get('*', (req, res) => {
+app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
