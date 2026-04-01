@@ -710,7 +710,60 @@ function looksLikeMemoryCode(code) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// /api/analyze - Gemini كـ fallback (مرة واحدة بس)
+// ═══════════════════════════════════════════════════════════════
+// /api/candidates - Candidate Generator (RAG Light)
+// يرجع أقرب 10 أكواد من الجداول لكود معين
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/candidates', (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code || code.length < 3) return res.json({ candidates: [] });
+        const upper = code.toUpperCase().trim();
+        const candidates = [];
+
+        function addCandidatesFrom(db, type) {
+            for (const [capacity, codes] of Object.entries(db)) {
+                for (const c of codes) {
+                    const cu = c.toUpperCase();
+                    // تطابق أول 2-3 حروف أو prefix مشترك
+                    const prefixLen = Math.min(upper.length, cu.length, 4);
+                    let commonPrefix = 0;
+                    for (let i = 0; i < prefixLen; i++) {
+                        if (upper[i] === cu[i]) commonPrefix++;
+                        else break;
+                    }
+                    if (commonPrefix >= 2 || (upper.length >= 4 && cu.includes(upper.substring(0, 4)))) {
+                        const parts = capacity.split('+');
+                        const storage = type === 'عادي' ? parts[0] : capacity;
+                        let ram = (type === 'عادي' && parts.length > 1) ? parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim() : null;
+                        if (!ram) ram = extractRam(c);
+                        candidates.push({
+                            code: c, storage, type,
+                            company: detectCompany(c), ram,
+                            similarity: commonPrefix
+                        });
+                    }
+                }
+            }
+        }
+
+        addCandidatesFrom(NORMAL_DB, 'عادي');
+        addCandidatesFrom(EMMC_DB, 'زجاجي');
+        addCandidatesFrom(MICRON_DB, 'زجاجي');
+
+        // ترتيب حسب التشابه ونرجع أعلى 10
+        candidates.sort((a, b) => b.similarity - a.similarity);
+        const top10 = candidates.slice(0, 10);
+        console.log('🎯 Candidates لـ', code, ':', top10.length, 'نتيجة');
+        return res.json({ candidates: top10 });
+    } catch (e) {
+        console.error('candidates error:', e.message);
+        return res.json({ candidates: [] });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// /api/analyze - Gemini خبير + Candidate Generator
 // ═══════════════════════════════════════════════════════════════
 
 app.post('/api/analyze', async (req, res) => {
@@ -728,34 +781,37 @@ app.post('/api/analyze', async (req, res) => {
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // ═══════════════════════════════════════════════════════
-        // Gemini مرة واحدة بس - يقرأ ويصنف في نفس الوقت
+        // Gemini = خبير تصنيف + selector/corrector
         // ═══════════════════════════════════════════════════════
-        const singlePrompt = `أنت خبير متخصص في قراءة وتصنيف شرائح الذاكرة (Memory IC chips) في الهواتف.
+        const singlePrompt = `You are an expert hardware memory chip classifier. Your job is to:
+1. Read the memory chip code from the image (NOT processor, NOT power IC)
+2. Classify it accurately (storage + type + company + RAM)
 
-المطلوب:
-1. اقرأ كود شريحة الذاكرة بس (مش البروسيسور)
-2. صنفها (مساحة + نوع + شركة + رام)
-
-شريحة الذاكرة = الشريحة السوداء الكبيرة اللي كودها بيبدأ بـ:
+Memory chip = the large black chip with codes starting with:
 Samsung: KM/KLM/KLU | SK Hynix: H9/H26/H28 | Toshiba: THG | SanDisk: SDIN | Micron: JW/JZ | YMEC/TY | UNIC: 08EMCP/16EMCP
 
-تجاهل: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (بروسيسور) + PM/WCD/WCN (طاقة)
+IGNORE: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (processor) + PM/WCD/WCN (power)
 
-=== قواعد التصنيف ===
-Samsung KM (عادي BGA): الحرف قبل 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
+=== Classification Rules ===
+Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
   RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-Samsung KLM (زجاجي): الحرف 5 → A=16|B=32|C=64|D=128|E=256|F=512
-Samsung KLU (زجاجي UFS): الحرف 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-SK Hynix H9 (عادي): الرقمان 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
+Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
+Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
+SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
   RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
 SK Hynix H26 (زجاجي EMMC) | H28 (زجاجي UFS)
-Toshiba THG (زجاجي): الحرفان 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
-YMEC (زجاجي): الحرف 5 بعد YMEC → 6/G=32|7=64|8/B=128|9=256
+Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
+YMEC (زجاجي): char 5 after YMEC → 6/G=32|7=64|8/B=128|9=256
 UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
 
-ارجع JSON فقط بالشكل ده:
-{"code":"الكود","storage":"رقم","type":"عادي أو زجاجي","company":"اسم","ram":"رقم أو null"}
-لو مش شايف شريحة ذاكرة: {"code":"NOT_FOUND","storage":"","type":"","company":"","ram":null}`;
+IMPORTANT:
+- Read the code EXACTLY as printed on the chip
+- Correct obvious OCR-like misreads (O↔0, B↔8, S↔5, I↔1)
+- Do NOT invent codes that don't exist on the chip
+
+Return JSON only:
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
+If no memory chip visible: {"code":"NOT_FOUND","storage":"","type":"","company":"","ram":null}`;
 
         let rawCode = '';
         let parsed = null;
