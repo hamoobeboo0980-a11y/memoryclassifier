@@ -1779,6 +1779,97 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
     }
 });
 
+// ═══════════════════════════════════════════════════════════════
+// /api/vision-ocr - Google Cloud Vision OCR (FAST path)
+// بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5 ثانية)
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/vision-ocr', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: 'No image provided', text: '' });
+
+        const VISION_KEY = process.env.GOOGLE_VISION_KEY || '';
+
+        if (!VISION_KEY) {
+            // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
+            console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+            const ocrPrompt = `Read ONLY the memory chip code from this image. Memory chips start with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP.\nReturn ONLY the code text, nothing else. If not found return: NOT_FOUND`;
+            const result = await model.generateContent({
+                contents: [{ parts: [
+                    { inlineData: { data: rawBase64, mimeType: 'image/jpeg' } },
+                    { text: ocrPrompt }
+                ]}],
+                generationConfig: { temperature: 0 }
+            });
+            const text = result.response.text().replace(/```/g, '').trim();
+            console.log('🔤 Gemini OCR fallback:', text);
+            return res.json({ text: text === 'NOT_FOUND' ? '' : text, source: 'gemini_ocr' });
+        }
+
+        // Google Cloud Vision API
+        const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+        const visionRes = await fetch(
+            `https://vision.googleapis.com/v1/images:annotate?key=${VISION_KEY}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    requests: [{
+                        image: { content: rawBase64 },
+                        features: [{ type: 'TEXT_DETECTION', maxResults: 1 }]
+                    }]
+                })
+            }
+        );
+
+        if (!visionRes.ok) {
+            const errData = await visionRes.json().catch(() => ({}));
+            console.error('Vision API error:', visionRes.status, errData);
+            return res.status(500).json({ error: 'Vision API failed', text: '' });
+        }
+
+        const visionData = await visionRes.json();
+        const annotations = visionData.responses &&
+            visionData.responses[0] &&
+            visionData.responses[0].textAnnotations;
+
+        if (!annotations || annotations.length === 0) {
+            console.log('🔤 Vision: لا يوجد نص');
+            return res.json({ text: '', source: 'vision' });
+        }
+
+        // أول annotation = كل النص في الصورة
+        const fullText = annotations[0].description || '';
+        console.log('🔤 Vision OCR raw:', fullText.substring(0, 200));
+
+        // استخراج كود الذاكرة من النص
+        const lines = fullText.split(/[\n\r\s]+/).filter(l => l.length >= 4);
+        let bestCode = '';
+        for (const line of lines) {
+            const cleaned = cleanReadCode(line.trim());
+            if (isValidMemoryCode(cleaned)) {
+                bestCode = cleaned;
+                break;
+            }
+        }
+
+        // لو ملقاش كود مباشرة - جرب cleanReadCode على النص الكامل
+        if (!bestCode) {
+            const fullCleaned = cleanReadCode(fullText.replace(/[\n\r]/g, ' ').trim());
+            if (isValidMemoryCode(fullCleaned)) bestCode = fullCleaned;
+        }
+
+        console.log('🔤 Vision OCR best code:', bestCode || '(لا يوجد)');
+        return res.json({ text: bestCode || fullText.substring(0, 100), source: 'vision', rawText: fullText.substring(0, 500) });
+
+    } catch (error) {
+        console.error('Vision OCR error:', error.message);
+        return res.status(500).json({ error: error.message, text: '' });
+    }
+});
+
 app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });

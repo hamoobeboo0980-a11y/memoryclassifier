@@ -1335,37 +1335,48 @@ async function analyzeImage(base64, previewSrc) {
 
 
   // ═══════════════════════════════════════════════════════
-  // المسار 1: Tesseract.js OCR → تنظيف → DB Lookup (سريع)
-  // Enhanced: thresholding + noise reduction + hard abort
+  // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
+  // v25: بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5ث)
   // ═══════════════════════════════════════════════════════
   var ocrPromise = (async function() {
     try {
-      if (typeof Tesseract === 'undefined') return null;
       if (abortOCR.signal.aborted) return null;
-      var imgSrc = 'data:image/jpeg;base64,' + base64;
-      var preprocessed = await preprocessForOCR(imgSrc);
-      if (abortOCR.signal.aborted) return null;
-      var tessResult = await Tesseract.recognize(preprocessed || imgSrc, 'eng', {
-        logger: function() {}
-      });
-      if (abortOCR.signal.aborted) return null;
-      var tessText = (tessResult.data.text || '').trim();
-      console.log('🔍 Tesseract قرأ:', tessText.substring(0, 200));
-      if (!tessText || tessText.length < 3) return null;
 
-      var lines = tessText.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
+      // إرسال الصورة لـ Vision OCR API على السيرفر
+      var visionRes = await fetch('/api/vision-ocr', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ imageBase64: base64 }),
+        signal: abortOCR.signal
+      });
+      if (abortOCR.signal.aborted || raceWon) return null;
+      if (!visionRes.ok) {
+        console.log('⚠️ Vision OCR API فشل:', visionRes.status);
+        return null;
+      }
+      var visionData = await visionRes.json();
+      if (abortOCR.signal.aborted || raceWon) return null;
+
+      var ocrText = (visionData.text || '').trim();
+      console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
+      if (!ocrText || ocrText.length < 3) return null;
+
+      // تنظيف وبحث في DB
+      var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
+      // أضف النص كاملاً كسطر إضافي
+      lines.unshift(ocrText);
       for (var li = 0; li < lines.length; li++) {
         if (raceWon || abortOCR.signal.aborted) return null;
         var line = ocrCleanup(lines[li]);
         if (line.length < 4) continue;
-        // LOCAL ONLY - بدون network calls
+        // LOCAL DB lookup
         var localResult = searchInDB(line);
         if (localResult && localResult.storage && localResult.type) {
           var company = localResult.company || detectCompanyLocal(line);
           var result = {
             code: line, storage: localResult.storage, type: localResult.type,
             company: company, ram: localResult.ram || null,
-            step: 'ocr_db', confidence: 92
+            step: 'vision_db', confidence: 93
           };
           // FAST = Primary UI Path - يعرض فوراً!
           fastResult = result;
@@ -1373,10 +1384,33 @@ async function analyzeImage(base64, previewSrc) {
           return result;
         }
       }
+
+      // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر
+      if (!raceWon && ocrText.length >= 4) {
+        var lookupRes = await fetch('/api/lookup', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' }),
+          signal: abortOCR.signal
+        });
+        if (!abortOCR.signal.aborted && !raceWon && lookupRes.ok) {
+          var lookupData = await lookupRes.json();
+          if (lookupData.found && lookupData.storage && lookupData.type) {
+            var result2 = {
+              code: lookupData.code || ocrText, storage: lookupData.storage,
+              type: lookupData.type, company: lookupData.company || '',
+              ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
+            };
+            fastResult = result2;
+            submitWinner(result2, 'FAST');
+            return result2;
+          }
+        }
+      }
       return null;
     } catch(e) {
-      if (e.name === 'AbortError') { console.log('OCR ألغي'); return null; }
-      console.log('Tesseract فشل:', e.message);
+      if (e.name === 'AbortError') { console.log('Vision OCR ألغي'); return null; }
+      console.log('Vision OCR فشل:', e.message);
       return null;
     }
   })();
