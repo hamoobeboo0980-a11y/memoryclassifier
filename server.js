@@ -340,15 +340,21 @@ function savePatternsToCloud() {
     }, 2000);
 }
 
-function learnPattern(code, storage, type, ram) {
+function learnPattern(code, storage, type, ram, userConfirmed) {
     if (!code || code.length < 4) return;
-    // استخرج prefix (أول 10 حروف)
     const prefix = code.toUpperCase().substring(0, Math.min(10, code.length));
+    // التأكيد اليدوي من المستخدم = 10 أصوات ومحمي من التغيير
+    if (userConfirmed) {
+        learnedPatterns[prefix] = { storage, type, ram, votes: 10, confirmedByUser: true, confirmedAt: new Date().toISOString() };
+        savePatternsToCloud();
+        return;
+    }
+    // لو الكود مؤكد يدوياً من قبل - لا تغيّره أبداً
+    if (learnedPatterns[prefix] && learnedPatterns[prefix].confirmedByUser) return;
     if (!learnedPatterns[prefix]) {
         learnedPatterns[prefix] = { storage, type, ram, votes: 1 };
     } else {
         learnedPatterns[prefix].votes++;
-        // لو التصويت الجديد مختلف والقديم عنده أصوات قليلة - حدّث
         if (learnedPatterns[prefix].storage !== storage && learnedPatterns[prefix].votes < 3) {
             learnedPatterns[prefix] = { storage, type, ram, votes: 1 };
         }
@@ -416,7 +422,13 @@ async function safeOCR(model, imageBase64, prompt) {
 function getCached(code) {
     if (!code) return null;
     const key = code.toUpperCase().trim();
-    
+
+    // 0. أولوية المستخدم أولاً - أي كود مؤكد أو مصحح يدوياً
+    if (resultCache[key] && resultCache[key].priority === 'user') {
+        console.log('من الكاش (مؤكد مستخدم):', key);
+        return resultCache[key];
+    }
+
     // 1. مطابقة دقيقة
     if (resultCache[key]) {
         console.log('من الكاش (دقيق):', key);
@@ -1221,13 +1233,14 @@ app.post('/api/confirm', (req, res) => {
     try {
         const { code, storage, type, company, ram, step } = req.body;
         if (!code || !storage) return res.status(400).json({ error: 'مفيش كود أو مساحة' });
-        
-        const result = { code, storage, type, company, ram: ram || extractRam(code), step, confirmed: true };
+
+        // أولوية المستخدم = محمية من أي تغيير تلقائي
+        const result = { code, storage, type, company, ram: ram || extractRam(code), step, confirmed: true, priority: 'user', confirmedAt: new Date().toISOString() };
         setCache(code, result);
-        // 5. ربط confirm بنظام التعلم
-        learnPattern(code, storage, type, ram || extractRam(code));
-        console.log('✅ المستخدم أكد:', code, '=', storage + 'GB', type, ram ? 'RAM:' + ram : '');
-        res.json({ success: true, message: 'اتحفظ في الكاش + اتعلم النمط' });
+        // تعلم بوزن عالي (userConfirmed = true)
+        learnPattern(code, storage, type, ram || extractRam(code), true);
+        console.log('✅ تأكيد مستخدم:', code, '=', storage + 'GB', type, '| محمي من التغيير');
+        res.json({ success: true, message: 'اتحفظ بأولوية عالية ومحمي' });
     } catch (error) {
         console.error('خطأ التأكيد:', error.message);
         res.status(500).json({ error: 'خطأ في الحفظ' });
@@ -1264,7 +1277,7 @@ app.post('/api/correct', (req, res) => {
         const { code, wrongResult, correctStorage, correctType, correctRam, step } = req.body;
         if (!code || !correctStorage) return res.status(400).json({ error: 'مفيش كود أو تصحيح' });
         
-        // حفظ النتيجة الصح في الكاش
+        // حفظ التصحيح بأعلى أولوية - محمي من أي تغيير تلقائي
         const correctResult = {
             code,
             storage: correctStorage,
@@ -1272,11 +1285,13 @@ app.post('/api/correct', (req, res) => {
             ram: correctRam || extractRam(code),
             company: detectCompany(code),
             step: 'correction',
-            confirmed: true
+            confirmed: true,
+            priority: 'user',
+            correctedAt: new Date().toISOString()
         };
         setCache(code, correctResult);
-        // 5. ربط correct بنظام التعلم
-        learnPattern(code, correctStorage, correctType || 'عادي', correctRam || extractRam(code));
+        // تعلم بوزن عالي (userConfirmed = true)
+        learnPattern(code, correctStorage, correctType || 'عادي', correctRam || extractRam(code), true);
         
         // تسجيل الخطأ للمراجعة
         const errorEntry = {
@@ -1809,6 +1824,8 @@ app.post('/api/vision-ocr', async (req, res) => {
         }
 
         // Google Cloud Vision API
+        console.log("VISION OCR CALLED");
+        console.time("VISION");
         const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
         const visionRes = await fetch(
             `https://vision.googleapis.com/v1/images:annotate?key=${VISION_KEY}`,
@@ -1831,6 +1848,7 @@ app.post('/api/vision-ocr', async (req, res) => {
         }
 
         const visionData = await visionRes.json();
+        console.timeEnd("VISION");
         const annotations = visionData.responses &&
             visionData.responses[0] &&
             visionData.responses[0].textAnnotations;
