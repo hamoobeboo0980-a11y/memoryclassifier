@@ -505,9 +505,9 @@ function fuzzySearchInDB(code) {
 // Error Memory - ذاكرة أخطاء OCR الشائعة + أخطاء التصنيف
 // ═══════════════════════════════════════════════════════════════
 const JBIN_ERRMEM_ID = '69cc4ef0856a682189e95b90';
-let errorMemory = {};
+let errorMemory = Object.create(null);
 // الشكل: { "B": "8", "O": "0" } = تصحيحات حرف بحرف
-let wrongClassifications = {};
+let wrongClassifications = Object.create(null);
 // الشكل: { "KMXX": { wrongStorage: "64", correctStorage: "32", count: 2 } }
 // يسجل أخطاء التصنيف المتكررة عشان نتجنبها
 
@@ -518,13 +518,18 @@ async function loadErrorMemory() {
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        errorMemory = (data.record && data.record.memory) ? data.record.memory : {};
-        wrongClassifications = (data.record && data.record.wrongClassifications) ? data.record.wrongClassifications : {};
+        const loadedMemory = (data.record && data.record.memory) ? data.record.memory : {};
+        const loadedWrong = (data.record && data.record.wrongClassifications) ? data.record.wrongClassifications : {};
+        // نسخ البيانات لـ null-prototype objects لمنع prototype pollution
+        errorMemory = Object.create(null);
+        Object.assign(errorMemory, loadedMemory);
+        wrongClassifications = Object.create(null);
+        Object.assign(wrongClassifications, loadedWrong);
         console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط OCR +', Object.keys(wrongClassifications).length, 'خطأ تصنيف');
     } catch (e) {
         console.log('ذاكرة أخطاء: بدأنا من الصفر -', e.message);
-        errorMemory = {};
-        wrongClassifications = {};
+        errorMemory = Object.create(null);
+        wrongClassifications = Object.create(null);
     }
 }
 
@@ -562,10 +567,9 @@ function applyErrorMemoryFixes(code) {
 function checkWrongClassification(code, proposedStorage) {
     if (!code || !proposedStorage || Object.keys(wrongClassifications).length === 0) return null;
     const upper = code.toUpperCase().trim();
-    // بحث بأول 10 حروف (prefix) عشان يغطي أكواد مشابهة
     const prefix = upper.substring(0, Math.min(10, upper.length));
     const entry = wrongClassifications[prefix] || wrongClassifications[upper];
-    if (entry && entry.wrongStorage === proposedStorage && entry.count >= 1) {
+    if (entry && entry.wrongStorage === proposedStorage) {
         console.log('⚠️ wrongClassifications: الكود', code, 'اتصنف', proposedStorage, 'قبل كده وكان غلط → الصح', entry.correctStorage);
         return entry.correctStorage;
     }
