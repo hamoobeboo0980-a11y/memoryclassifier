@@ -1245,7 +1245,7 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
   if (isAnalyzing) return;
   isAnalyzing = true;
   lastBase64 = base64;
-  if (fullBase64) window._lastFullBase64 = fullBase64;
+  if (fullBase64) window._lastFullBase64 = fullBase64; // حفظ الصورة الكاملة للـ Deep Retry (مطلوب global عشان async)
   resetLEDs();
   startLEDAnimation();
   startScanBar();
@@ -1508,9 +1508,8 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
       // Gemini يبحث جوه وبره المربع الصغير عن IC المساحة
       // ═══════════════════════════════════════════════════════
       else {
-        // هل فيه صورة كاملة نقدر نبعتها؟
+        // الصورة الكاملة للـ Deep Retry (أو نفس الصورة لو مفيش كاملة)
         var deepBase64 = window._lastFullBase64 || base64;
-        var hasFullImage = !!(window._lastFullBase64 && window._lastFullBase64 !== base64);
         var isErrorResult = !!(geminiResult && geminiResult.error);
         var isNoCredit = isErrorResult && geminiResult.data && (geminiResult.data.step === 'no_credit');
         
@@ -1527,7 +1526,7 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
         }
         // DEEP RETRY - نجرب بالصورة الكاملة
         else {
-          console.log('🔬 Deep Retry: المحاولة الأولى فشلت → بحث عميق' + (hasFullImage ? ' بالصورة الكاملة' : ' بنفس الصورة'));
+          console.log('🔬 Deep Retry: المحاولة الأولى فشلت → بحث عميق');
           addChatMsg('المساعد', '🔬 بدور بتركيز أكتر على الصورة الكاملة...', 'bot');
           var statusText = document.getElementById('statusText');
           if (statusText) statusText.textContent = '🔬 بحث عميق...';
@@ -2424,6 +2423,7 @@ async function captureAndAnalyze() {
   }
 
   // === استخراج الصورة الكاملة (للـ Deep Retry) ===
+  // جودة 0.85 = توازن بين حجم الملف والتفاصيل الكافية لقراءة الأكواد
   function getFullImage(sourceCanvas) {
     return sourceCanvas.toDataURL('image/jpeg', 0.85).split(',')[1];
   }
