@@ -63,6 +63,7 @@
   .led[data-step="careful"].active { background: #ff9100; color: #ff9100; }
   .led[data-step="fuzzy"].active { background: #ff4081; color: #ff4081; }
   .led[data-step="gemini"].active { background: #8d6e63; color: #8d6e63; }
+  .led[data-step="deep"].active { background: #e040fb; color: #e040fb; }
   .led[data-step="failed"].active { background: #ff1744; color: #ff1744; }
   .led[data-step="no_credit"].active { background: #000; color: #555; box-shadow: 0 0 6px 2px #333; }
 
@@ -871,6 +872,7 @@
     <div class="led" data-step="careful" title="بعناية"></div>
     <div class="led" data-step="fuzzy" title="تصحيح ذكي"></div>
     <div class="led" data-step="gemini" title="Gemini"></div>
+    <div class="led" data-step="deep" title="بحث عميق"></div>
     <div class="led" data-step="failed" title="فشل"></div>
     <div class="led" data-step="no_credit" title="رصيد"></div>
   </div>
@@ -998,7 +1000,7 @@ var autoInterval = null;
 // ═══════════════════════════════════════
 // LED INDICATORS + PROGRESS BAR
 // ═══════════════════════════════════════
-var LED_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','failed','no_credit'];
+var LED_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','deep','failed','no_credit'];
 
 function resetLEDs() {
   LED_STEPS.forEach(function(s) {
@@ -1043,8 +1045,8 @@ function lightLED(stepName) {
 var ledAnimTimer = null;
 var ledAnimStep = 0;
 // الخطوات الأولى (كاش/تصحيحات/جداول/متعلم) بتعدي بسرعة، الباقي ببطء
-var LED_ANIM_DELAYS = [300, 300, 400, 400, 1500, 2500, 1500, 1500];
-var LED_ANIM_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini'];
+var LED_ANIM_DELAYS = [300, 300, 400, 400, 1500, 2500, 1500, 1500, 3000];
+var LED_ANIM_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','deep'];
 
 function startLEDAnimation() {
   stopLEDAnimation();
@@ -1239,10 +1241,11 @@ function unfreezeCamera() {
   }
 }
 
-async function analyzeImage(base64, previewSrc) {
+async function analyzeImage(base64, previewSrc, fullBase64) {
   if (isAnalyzing) return;
   isAnalyzing = true;
   lastBase64 = base64;
+  if (fullBase64) window._lastFullBase64 = fullBase64;
   resetLEDs();
   startLEDAnimation();
   startScanBar();
@@ -1500,28 +1503,96 @@ async function analyzeImage(base64, previewSrc) {
         console.log('🧠 Fallback: Gemini partial');
         submitWinner(geminiResult, 'Gemini');
       }
-      // لو Gemini فشل وفي error
-      else if (geminiResult && geminiResult.error) {
-        stopLEDAnimation();
-        lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
-        stopScanBar(false);
-        showLoading(false);
-        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-      }
-      // مفيش حاجة خالص
+      // ═══════════════════════════════════════════════════════
+      // DEEP RETRY: المحاولة الأولى فشلت → نجرب بالصورة الكاملة
+      // Gemini يبحث جوه وبره المربع الصغير عن IC المساحة
+      // ═══════════════════════════════════════════════════════
       else {
-        stopLEDAnimation();
-        lightLED('failed');
-        stopScanBar(false);
-        showLoading(false);
-        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-        showError('❌ مش شايف كود ذاكرة');
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        // هل فيه صورة كاملة نقدر نبعتها؟
+        var deepBase64 = window._lastFullBase64 || base64;
+        var hasFullImage = !!(window._lastFullBase64 && window._lastFullBase64 !== base64);
+        var isErrorResult = !!(geminiResult && geminiResult.error);
+        var isNoCredit = isErrorResult && geminiResult.data && (geminiResult.data.step === 'no_credit');
+        
+        // لو الرصيد خلص - مفيش فايدة نعيد
+        if (isNoCredit) {
+          stopLEDAnimation();
+          lightLED('failed');
+          stopScanBar(false);
+          showLoading(false);
+          showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'الرصيد خلص'));
+          isAnalyzing = false;
+          unfreezeCamera();
+          if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        }
+        // DEEP RETRY - نجرب بالصورة الكاملة
+        else {
+          console.log('🔬 Deep Retry: المحاولة الأولى فشلت → بحث عميق' + (hasFullImage ? ' بالصورة الكاملة' : ' بنفس الصورة'));
+          addChatMsg('المساعد', '🔬 بدور بتركيز أكتر على الصورة الكاملة...', 'bot');
+          var statusText = document.getElementById('statusText');
+          if (statusText) statusText.textContent = '🔬 بحث عميق...';
+          
+          try {
+            var deepRes = await fetch('/api/analyze-deep', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ imageBase64: deepBase64, learnedCodes: cloudLearned })
+            });
+            
+            if (deepRes.ok) {
+              var deepParsed = await deepRes.json();
+              if (!deepParsed.confidence) {
+                deepParsed.confidence = (deepParsed.storage && deepParsed.type) ? 70 : 25;
+              }
+              
+              // Deep Search لقى كود صالح
+              if (deepParsed.code && deepParsed.code !== 'NOT_FOUND' && isValidCode(deepParsed.code)) {
+                if (deepParsed.storage && deepParsed.type) {
+                  console.log('🔬 Deep Search نجح!', deepParsed.code, deepParsed.storage + 'GB', deepParsed.type);
+                  submitWinner(deepParsed, 'Deep🔬');
+                } else {
+                  // كود بدون تصنيف
+                  console.log('🔬 Deep Search: كود بدون تصنيف', deepParsed.code);
+                  submitWinner(deepParsed, 'Deep🔬');
+                }
+              } else {
+                // Deep Search برضو مش لاقي
+                console.log('🔬 Deep Search: مش لاقي حاجة');
+                stopLEDAnimation();
+                lightLED('failed');
+                stopScanBar(false);
+                showLoading(false);
+                addChatMsg('المساعد', '❓ دورت في الصورة كلها ومش لاقي كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+                showError('❌ مش شايف كود ذاكرة');
+                isAnalyzing = false;
+                unfreezeCamera();
+                if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+              }
+            } else {
+              // Deep Search API error
+              var deepErr = {};
+              try { deepErr = await deepRes.json(); } catch(e2){}
+              stopLEDAnimation();
+              lightLED('failed');
+              stopScanBar(false);
+              showLoading(false);
+              showError('❌ ' + (deepErr.error || 'فشل البحث العميق'));
+              isAnalyzing = false;
+              unfreezeCamera();
+              if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+            }
+          } catch(deepE) {
+            console.log('🔬 Deep Retry فشل:', deepE.message);
+            stopLEDAnimation();
+            lightLED('failed');
+            stopScanBar(false);
+            showLoading(false);
+            showError('❌ فشل البحث العميق');
+            isAnalyzing = false;
+            unfreezeCamera();
+            if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+          }
+        }
       }
     }
   } catch(e) {
@@ -2352,6 +2423,11 @@ async function captureAndAnalyze() {
     return cropCanvas;
   }
 
+  // === استخراج الصورة الكاملة (للـ Deep Retry) ===
+  function getFullImage(sourceCanvas) {
+    return sourceCanvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+  }
+
   var ctx = canvas.getContext('2d');
   var w = video.videoWidth || 1280;
   var h = video.videoHeight || 720;
@@ -2367,11 +2443,13 @@ async function captureAndAnalyze() {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
+        // حفظ الصورة الكاملة للـ Deep Retry
+        var fullBase64 = getFullImage(canvas);
         var cropped = cropToFocusBox(canvas, img.width, img.height);
         var base64 = cropped.toDataURL('image/jpeg', 1.0);
         var imageData = base64.split(',')[1];
-        console.log('📸 تم التقاط + قص على مربع التركيز (ImageCapture)');
-        analyzeImage(imageData, base64);
+        console.log('📸 تم التقاط + قص على مربع التركيز (ImageCapture) + حفظ الصورة الكاملة للـ Deep');
+        analyzeImage(imageData, base64, fullBase64);
       };
       img.src = URL.createObjectURL(blob);
       return;
@@ -2382,11 +2460,13 @@ async function captureAndAnalyze() {
 
   // Fallback: Canvas
   ctx.drawImage(video, 0, 0, w, h);
+  // حفظ الصورة الكاملة للـ Deep Retry
+  var fullBase64 = getFullImage(canvas);
   var cropped = cropToFocusBox(canvas, w, h);
   var base64 = cropped.toDataURL('image/jpeg', 1.0);
   var imageData = base64.split(',')[1];
-  console.log('📸 تم التقاط + قص على مربع التركيز (Canvas)');
-  analyzeImage(imageData, base64);
+  console.log('📸 تم التقاط + قص على مربع التركيز (Canvas) + حفظ الصورة الكاملة للـ Deep');
+  analyzeImage(imageData, base64, fullBase64);
 }
 
 function updateAutoUI(progress, msg) {

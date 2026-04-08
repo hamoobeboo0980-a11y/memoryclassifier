@@ -1712,6 +1712,182 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
 });
 
 // ═══════════════════════════════════════════════════════════════
+// /api/analyze-deep - بحث عميق في الصورة الكاملة (Retry path)
+// يُستخدم لما المحاولة الأولى (المربع الصغير) تفشل
+// Gemini يركز ويدور جوه وبره المربع على IC المساحة
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/analyze-deep', async (req, res) => {
+    try {
+        const { imageBase64, learnedCodes } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        // DEEP SEARCH PROMPT: بحث مركز في الصورة الكاملة
+        const deepPrompt = `You are an expert memory chip technician examining a circuit board photo.
+
+IMPORTANT: The first scan attempt FAILED to find the memory chip code. You MUST look MORE CAREFULLY.
+
+SEARCH STRATEGY:
+1. Look at the ENTIRE image - not just the center. The memory chip could be ANYWHERE.
+2. The memory chip (IC المساحة) is typically the LARGEST black chip on the board.
+3. It often has VERY SMALL text printed/engraved on it - zoom in mentally on each black chip.
+4. Look for codes starting with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP
+5. IGNORE processor chips (Snapdragon/Qualcomm/Mediatek/SDM/SM/MT) and power chips (PM/WCD/WCN).
+6. The text might be FADED, ANGLED, or PARTIALLY OBSCURED - try to read it anyway.
+7. Correct OCR-like misreads: O↔0, B↔8, S↔5, I↔1, G↔6, Z↔2
+
+CLASSIFICATION RULES:
+Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
+  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
+Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
+Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
+SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
+SK Hynix H26 (زجاجي eMMC) | H28 (زجاجي UFS)
+Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
+YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
+UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
+Micron JW/JZ (زجاجي)
+
+Return JSON ONLY:
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
+If truly no memory chip found after thorough search: {"code":"NOT_FOUND"}`;
+
+        let rawCode = '';
+        let geminiStorage = '';
+        let geminiType = '';
+        let geminiCompany = '';
+        let geminiRam = null;
+
+        try {
+            const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+            const geminiResult = await model.generateContent({
+                contents: [{ parts: [
+                    { inlineData: { mimeType: 'image/jpeg', data: rawBase64 } },
+                    { text: deepPrompt }
+                ]}],
+                generationConfig: { temperature: 0 }
+            });
+            let geminiText = geminiResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+            console.log('🔬 Deep Search نتيجة:', geminiText);
+            
+            let parsed = null;
+            try {
+                parsed = JSON.parse(geminiText);
+            } catch(e1) {
+                const jsonMatch = geminiText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
+                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+            }
+            
+            if (parsed && parsed.code) {
+                rawCode = cleanReadCode(parsed.code);
+                geminiStorage = parsed.storage || '';
+                geminiType = parsed.type || '';
+                geminiCompany = parsed.company || '';
+                geminiRam = parsed.ram || null;
+            }
+        } catch (geminiErr) {
+            console.error('Deep Search فشل:', geminiErr.message);
+            throw geminiErr;
+        }
+
+        // VALIDATION
+        if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3 && !isValidMemoryCode(rawCode)) {
+            console.log('🚫 Deep Validation: كود مش صالح "' + rawCode + '"');
+            rawCode = '';
+        }
+
+        if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
+            return res.json({ code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'deep_no_code', confidence: 0 });
+        }
+
+        // DB LOOKUP أولاً (الأدق)
+        const dbResult = lookupCode(rawCode, learnedCodes);
+        if (dbResult && dbResult.storage && dbResult.type) {
+            dbResult.step = 'deep_db';
+            dbResult.confidence = 93;
+            dbResult.suggestion = 'Deep Search لقاه: ' + rawCode;
+            console.log('✅ Deep DB:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
+            setCache(rawCode, dbResult);
+            return res.json(dbResult);
+        }
+
+        // ErrorMemory fix
+        const fixed = applyErrorMemoryFixes(rawCode.toUpperCase());
+        if (fixed !== rawCode.toUpperCase()) {
+            const fixedResult = lookupCode(fixed, learnedCodes);
+            if (fixedResult && fixedResult.storage && fixedResult.type) {
+                fixedResult.step = 'deep_errorfix';
+                fixedResult.confidence = 88;
+                fixedResult.suggestion = 'Deep Search قرأ ' + rawCode + ' وصححه لـ ' + fixed;
+                console.log('✅ Deep ErrorFix:', rawCode, '→', fixed);
+                setCache(rawCode, fixedResult);
+                return res.json(fixedResult);
+            }
+        }
+
+        // Fuzzy match
+        const fuzzy = fuzzySearchInDB(rawCode);
+        if (fuzzy && fuzzy.distance <= 1.5) {
+            const fuzzyResult = {
+                code: fuzzy.code, storage: fuzzy.storage, type: fuzzy.type,
+                company: fuzzy.company, ram: fuzzy.ram || extractRam(fuzzy.code),
+                suggestion: 'Deep Search قرأ ' + rawCode + ' وأقرب كود ' + fuzzy.code,
+                step: 'deep_fuzzy', confidence: 83
+            };
+            console.log('✅ Deep Fuzzy:', rawCode, '→', fuzzy.code);
+            setCache(rawCode, fuzzyResult);
+            return res.json(fuzzyResult);
+        }
+
+        // Gemini direct classification
+        if (geminiStorage && geminiType) {
+            let finalStorage = geminiStorage;
+            const correctedStorage = checkWrongClassification(rawCode, geminiStorage);
+            if (correctedStorage) {
+                finalStorage = correctedStorage;
+            }
+            const result = {
+                code: rawCode, storage: finalStorage, type: geminiType,
+                company: geminiCompany || detectCompany(rawCode),
+                ram: geminiRam || extractRam(rawCode),
+                step: 'deep_gemini', confidence: correctedStorage ? 73 : 63,
+                suggestion: 'Deep Search صنّفه'
+            };
+            console.log('✅ Deep Gemini Direct:', result);
+            setCache(rawCode, result);
+            return res.json(result);
+        }
+
+        // Partial
+        const finalResult = {
+            code: rawCode, storage: '', type: '', company: detectCompany(rawCode),
+            ram: null, step: 'deep_partial', confidence: 25
+        };
+        console.log('⚠️ Deep Partial:', finalResult);
+        res.json(finalResult);
+
+    } catch (error) {
+        const errText = (error.message || String(error)).toLowerCase();
+        console.error("خطأ Deep Search:", error.message || error);
+        let errMsg = 'خطأ في التحليل العميق';
+        let step = 'deep_failed';
+        
+        if (errText.includes('resource') && errText.includes('exhaust')) {
+            errMsg = 'طلبات كتير - استنى 10 ثواني وجرب تاني';
+            step = 'no_credit';
+        } else if (errText.includes('quota')) {
+            errMsg = 'الرصيد خلص فعلاً';
+            step = 'no_credit';
+        } else if (errText.includes('429') || errText.includes('rate')) {
+            errMsg = 'طلبات كتير - استنى شوية';
+            step = 'no_credit';
+        }
+        res.status(500).json({ error: errMsg, step, confidence: 0 });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // /api/vision-ocr - Google Cloud Vision OCR (FAST path)
 // بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5 ثانية)
 // ═══════════════════════════════════════════════════════════════
