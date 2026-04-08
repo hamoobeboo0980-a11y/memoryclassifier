@@ -1665,7 +1665,7 @@ app.post('/api/chat', async (req, res) => {
             }
             const isGlass = /زجاجي|glass|emmc/i.test(message);
             const isNormal = /عادي|normal|bga/i.test(message);
-            const ramMatch = message.match(/(?:ram|رام)\s*[:=]?\s*(\d+\.?\d*)/i);
+            const ramMatch = message.match(/(?:ram|رام)\s{0,5}[:=]?\s{0,5}(\d+\.?\d*)/i);
             
             if (!codeMatch) {
                 return res.json({ reply: '❓ محتاج الكود - مثلاً: "سجل KMX60013M 32 عادي"', source: 'system', action: 'teach_ask' });

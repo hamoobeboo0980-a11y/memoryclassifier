@@ -1003,8 +1003,8 @@ let cameraActive = false;
 var flashActive = false;
 
 var useBrowserCam = true; // true = كاميرا الموقع, false = كاميرا أصلية
-var codeCache = (function() { try { var s = localStorage.getItem('ic_code_cache'); return s ? JSON.parse(s) : {}; } catch(e) { return {}; } })(); // كاش ثابت - مش بيتمسح مع الريفرش
-function saveCodeCache() { try { localStorage.setItem('ic_code_cache', JSON.stringify(codeCache)); } catch(e) {} }
+var codeCache = (function() { try { var s = localStorage.getItem('ic_code_cache'); return s ? JSON.parse(s) : {}; } catch(e) { console.log('codeCache load error:', e.message); return {}; } })(); // كاش ثابت - مش بيتمسح مع الريفرش
+function saveCodeCache() { try { localStorage.setItem('ic_code_cache', JSON.stringify(codeCache)); } catch(e) { console.log('codeCache save error:', e.message); } }
 var prevFrame = null;
 var autoProgress = 0;
 var autoInterval = null;
@@ -1190,6 +1190,11 @@ function buildSmartAssistantMsg(parsed, source, elapsed) {
     parts.push('🆕 كود جديد أول مرة نشوفه');
   } else if (parsed.is_new_code === false) {
     parts.push('📋 الكود ده محفوظ قبل كده');
+  } else {
+    // is_new_code غير متاح - نشيك في الكاش المحلي
+    if (code && codeCache[code.toUpperCase()]) {
+      parts.push('📋 الكود ده محفوظ في الكاش المحلي');
+    }
   }
   
   // 2. النتيجة
