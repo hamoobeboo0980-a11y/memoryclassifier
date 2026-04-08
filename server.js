@@ -359,59 +359,8 @@ function learnPattern(code, storage, type, ram) {
 loadPatternsFromCloud();
 
 // ═══════════════════════════════════════════════════════════════
-// 3. safeOCR + Image Hash Cache
+// 3. Cache Lookup Functions
 // ═══════════════════════════════════════════════════════════════
-// كاشين منفصلين:
-// 1. ocrCache: كاش نتائج OCR (صورة + prompt → نص)
-// 2. imageResultCache: كاش النتيجة النهائية (صورة → نتيجة كاملة)
-let ocrCache = {};          // { hash: { text, timestamp } }
-let imageResultCache = {};  // { hash: { finalResult, timestamp } }
-
-function simpleHash(str) {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(h).toString(36);
-}
-
-function imageHash(base64) {
-    // hash من أول 500 حرف + آخر 500 حرف + الطول
-    const s = base64.substring(0, 500) + base64.substring(Math.max(0, base64.length - 500)) + base64.length;
-    return 'img_' + simpleHash(s);
-}
-
-function ocrHash(base64, prompt) {
-    // hash من الصورة + أول 50 حرف من البرومبت (عشان كل prompt يكون له كاش مختلف)
-    const s = base64.substring(0, 500) + base64.length + '|' + prompt.substring(0, 50);
-    return 'ocr_' + simpleHash(s);
-}
-
-async function safeOCR(model, imageBase64, prompt) {
-    const hash = ocrHash(imageBase64, prompt);
-    // لو نفس الصورة + نفس البرومبت اتحللت قبل كده في آخر 5 دقايق
-    if (ocrCache[hash] && (Date.now() - ocrCache[hash].timestamp < 300000)) {
-        console.log('📸 safeOCR كاش: نفس الصورة + نفس البرومبت');
-        return ocrCache[hash].text;
-    }
-    // شيل الـ prefix (data:image/jpeg;base64,) لو موجود - Gemini محتاج base64 خام
-    const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-    const result = await model.generateContent({
-        contents: [{ parts: [
-            { inlineData: { data: rawBase64, mimeType: "image/jpeg" } },
-            { text: prompt }
-        ]}],
-        generationConfig: { temperature: 0 }
-    });
-    const text = result.response.text().replace(/```/g, '').trim();
-    ocrCache[hash] = { text, timestamp: Date.now() };
-    // تنظيف الكاش القديم (أكتر من 10 دقايق)
-    const now = Date.now();
-    for (const k of Object.keys(ocrCache)) {
-        if (now - ocrCache[k].timestamp > 600000) delete ocrCache[k];
-    }
-    return text;
-}
 
 function getCached(code) {
     if (!code) return null;
@@ -553,11 +502,14 @@ function fuzzySearchInDB(code) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Error Memory - ذاكرة أخطاء OCR الشائعة
+// Error Memory - ذاكرة أخطاء OCR الشائعة + أخطاء التصنيف
 // ═══════════════════════════════════════════════════════════════
 const JBIN_ERRMEM_ID = '69cc4ef0856a682189e95b90';
 let errorMemory = {};
-// الشكل: { "B8": 5, "O0": 3 } = عدد مرات تكرار الخطأ
+// الشكل: { "B": "8", "O": "0" } = تصحيحات حرف بحرف
+let wrongClassifications = {};
+// الشكل: { "KMXX": { wrongStorage: "64", correctStorage: "32", count: 2 } }
+// يسجل أخطاء التصنيف المتكررة عشان نتجنبها
 
 async function loadErrorMemory() {
     try {
@@ -567,10 +519,12 @@ async function loadErrorMemory() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         errorMemory = (data.record && data.record.memory) ? data.record.memory : {};
-        console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط');
+        wrongClassifications = (data.record && data.record.wrongClassifications) ? data.record.wrongClassifications : {};
+        console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط OCR +', Object.keys(wrongClassifications).length, 'خطأ تصنيف');
     } catch (e) {
         console.log('ذاكرة أخطاء: بدأنا من الصفر -', e.message);
         errorMemory = {};
+        wrongClassifications = {};
     }
 }
 
@@ -580,9 +534,9 @@ function saveErrorMemory() {
             await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ERRMEM_ID, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'X-Master-Key': JBIN_MASTER },
-                body: JSON.stringify({ memory: errorMemory })
+                body: JSON.stringify({ memory: errorMemory, wrongClassifications: wrongClassifications })
             });
-            console.log('🧠 تم حفظ ذاكرة الأخطاء:', Object.keys(errorMemory).length);
+            console.log('🧠 تم حفظ ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'OCR +', Object.keys(wrongClassifications).length, 'تصنيف');
         } catch (e) {
             console.error('خطأ حفظ ذاكرة الأخطاء:', e.message);
         }
@@ -604,6 +558,20 @@ function applyErrorMemoryFixes(code) {
     return fixed;
 }
 
+// التحقق من أخطاء التصنيف السابقة - لو الكود ده اتصنف غلط قبل كده يتجنب نفس الغلطة
+function checkWrongClassification(code, proposedStorage) {
+    if (!code || !proposedStorage || Object.keys(wrongClassifications).length === 0) return null;
+    const upper = code.toUpperCase().trim();
+    // بحث بأول 10 حروف (prefix) عشان يغطي أكواد مشابهة
+    const prefix = upper.substring(0, Math.min(10, upper.length));
+    const entry = wrongClassifications[prefix] || wrongClassifications[upper];
+    if (entry && entry.wrongStorage === proposedStorage && entry.count >= 1) {
+        console.log('⚠️ wrongClassifications: الكود', code, 'اتصنف', proposedStorage, 'قبل كده وكان غلط → الصح', entry.correctStorage);
+        return entry.correctStorage;
+    }
+    return null;
+}
+
 // تعلم خطأ OCR جديد من التصحيح
 function learnOCRError(wrongCode, correctCode) {
     if (!wrongCode || !correctCode || wrongCode === correctCode) return;
@@ -617,6 +585,22 @@ function learnOCRError(wrongCode, correctCode) {
             console.log('🧠 تعلم خطأ OCR:', w[i], '→', c[i]);
         }
     }
+    saveErrorMemory();
+}
+
+// تعلم خطأ تصنيف من التصحيح
+function learnWrongClassification(code, wrongStorage, correctStorage) {
+    if (!code || !wrongStorage || !correctStorage || wrongStorage === correctStorage) return;
+    const upper = code.toUpperCase().trim();
+    const prefix = upper.substring(0, Math.min(10, upper.length));
+    if (!wrongClassifications[prefix]) {
+        wrongClassifications[prefix] = { wrongStorage, correctStorage, count: 1 };
+    } else {
+        wrongClassifications[prefix].count++;
+        wrongClassifications[prefix].wrongStorage = wrongStorage;
+        wrongClassifications[prefix].correctStorage = correctStorage;
+    }
+    console.log('🧠 تعلم خطأ تصنيف:', prefix, '| كان:', wrongStorage, '→ الصح:', correctStorage, '| مرات:', wrongClassifications[prefix].count);
     saveErrorMemory();
 }
 
@@ -688,61 +672,6 @@ app.post('/api/lookup', (req, res) => {
 // looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════
-// /api/candidates - DISABLED (Dead Code - v21 cleanup)
-// الدالة الداخلية getCandidatesForCode لسه شغالة جوه /api/analyze
-// ═══════════════════════════════════════════════════════════════
-/* DISABLED v21
-app.post('/api/candidates', (req, res) => {
-    try {
-        const { code } = req.body;
-        if (!code || code.length < 3) return res.json({ candidates: [] });
-        const upper = code.toUpperCase().trim();
-        const candidates = [];
-
-        function addCandidatesFrom(db, type) {
-            for (const [capacity, codes] of Object.entries(db)) {
-                for (const c of codes) {
-                    const cu = c.toUpperCase();
-                    // تطابق أول 2-3 حروف أو prefix مشترك
-                    const prefixLen = Math.min(upper.length, cu.length, 4);
-                    let commonPrefix = 0;
-                    for (let i = 0; i < prefixLen; i++) {
-                        if (upper[i] === cu[i]) commonPrefix++;
-                        else break;
-                    }
-                    if (commonPrefix >= 2 || (upper.length >= 4 && cu.includes(upper.substring(0, 4)))) {
-                        const parts = capacity.split('+');
-                        const storage = type === 'عادي' ? parts[0] : capacity;
-                        let ram = (type === 'عادي' && parts.length > 1) ? parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim() : null;
-                        if (!ram) ram = extractRam(c);
-                        candidates.push({
-                            code: c, storage, type,
-                            company: detectCompany(c), ram,
-                            similarity: commonPrefix
-                        });
-                    }
-                }
-            }
-        }
-
-        addCandidatesFrom(NORMAL_DB, 'عادي');
-        addCandidatesFrom(EMMC_DB, 'زجاجي');
-        addCandidatesFrom(MICRON_DB, 'زجاجي');
-
-        // ترتيب حسب التشابه ونرجع أعلى 10
-        candidates.sort((a, b) => b.similarity - a.similarity);
-        const top10 = candidates.slice(0, 10);
-        console.log('🎯 Candidates لـ', code, ':', top10.length, 'نتيجة');
-        return res.json({ candidates: top10 });
-    } catch (e) {
-        console.error('candidates error:', e.message);
-        return res.json({ candidates: [] });
-    }
-});
-DISABLED v21 END */
-
-// ═══════════════════════════════════════════════════════════════
 // /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
 // Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
 // ═══════════════════════════════════════════════════════════════
@@ -751,15 +680,6 @@ app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
-
-        // كاش على مستوى الصورة
-        const imgHash = imageHash(imageBase64);
-        if (imageResultCache[imgHash] && imageResultCache[imgHash].finalResult && (Date.now() - imageResultCache[imgHash].timestamp < 600000)) {
-            console.log('⚡ نفس الصورة - كاش فوري');
-            const cached = imageResultCache[imgHash].finalResult;
-            cached.confidence = 99;
-            return res.json(cached);
-        }
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -837,7 +757,6 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
 
         if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
             const noResult = { code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'no_code', confidence: 0 };
-            imageResultCache[imgHash] = { finalResult: noResult, timestamp: Date.now() };
             return res.json(noResult);
         }
 
@@ -852,7 +771,6 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
             dbResult.confidence = 95;
             console.log('✅ DB exact:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
             setCache(rawCode, dbResult);
-            imageResultCache[imgHash] = { finalResult: dbResult, timestamp: Date.now() };
             return res.json(dbResult);
         }
         
@@ -866,7 +784,6 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 fixedResult.suggestion = 'قرأته ' + rawCode + ' وصححته لـ ' + fixed;
                 console.log('✅ ErrorFix:', rawCode, '→', fixed);
                 setCache(rawCode, fixedResult);
-                imageResultCache[imgHash] = { finalResult: fixedResult, timestamp: Date.now() };
                 return res.json(fixedResult);
             }
         }
@@ -882,7 +799,6 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
             };
             console.log('✅ Fuzzy (dist=' + fuzzy.distance + '):', rawCode, '→', fuzzy.code);
             setCache(rawCode, fuzzyResult);
-            imageResultCache[imgHash] = { finalResult: fuzzyResult, timestamp: Date.now() };
             return res.json(fuzzyResult);
         }
 
@@ -942,7 +858,6 @@ Return JSON only:
                         selected.suggestion = 'قرأته ' + rawCode + (selected.code !== rawCode ? ' واختار ' + selected.code : '');
                         console.log('✅ RAG (conf=' + confidence + '):', selected);
                         setCache(rawCode, selected);
-                        imageResultCache[imgHash] = { finalResult: selected, timestamp: Date.now() };
                         return res.json(selected);
                     }
                 }
@@ -953,18 +868,27 @@ Return JSON only:
 
         // ═══════════════════════════════════════════════════════
         // GEMINI DIRECT: لو كل حاجة فشلت → ناخد تصنيف Gemini الأصلي
+        // مع فحص أخطاء التصنيف السابقة
         // ═══════════════════════════════════════════════════════
         if (geminiStorage && geminiType) {
-            // Gemini صنف في الطلب الأول خلاص - نستخدم تصنيفه
+            // فحص: هل Gemini اقترح مساحة اتصنفت غلط قبل كده لنفس الكود؟
+            let finalStorage = geminiStorage;
+            const correctedStorage = checkWrongClassification(rawCode, geminiStorage);
+            if (correctedStorage) {
+                console.log('⚠️ Gemini Direct: wrongClassifications صحح', geminiStorage, '→', correctedStorage);
+                finalStorage = correctedStorage;
+            }
             const geminiDirect = {
-                code: rawCode, storage: geminiStorage, type: geminiType,
+                code: rawCode, storage: finalStorage, type: geminiType,
                 company: geminiCompany || detectCompany(rawCode),
                 ram: geminiRam || extractRam(rawCode),
-                step: 'gemini_direct', confidence: 65
+                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65
             };
-            console.log('✅ Gemini Direct (conf=65):', geminiDirect);
+            if (correctedStorage) {
+                geminiDirect.suggestion = 'Gemini قال ' + geminiStorage + ' بس اتصحح لـ ' + correctedStorage + ' من أخطاء سابقة';
+            }
+            console.log('✅ Gemini Direct (conf=' + geminiDirect.confidence + '):', geminiDirect);
             setCache(rawCode, geminiDirect);
-            imageResultCache[imgHash] = { finalResult: geminiDirect, timestamp: Date.now() };
             return res.json(geminiDirect);
         }
 
@@ -977,7 +901,6 @@ Return JSON only:
         };
         console.log('⚠️ Partial:', finalResult);
         setCache(rawCode, finalResult);
-        imageResultCache[imgHash] = { finalResult, timestamp: Date.now() };
         res.json(finalResult);
 
     } catch (error) {
@@ -1293,6 +1216,11 @@ app.post('/api/correct', (req, res) => {
         // تعلم أخطاء OCR من التصحيح
         if (wrongResult && wrongResult.code && wrongResult.code !== code) {
             learnOCRError(wrongResult.code, code);
+        }
+        
+        // تعلم أخطاء التصنيف (المساحة الغلط vs الصح)
+        if (wrongResult && wrongResult.storage && wrongResult.storage !== correctStorage) {
+            learnWrongClassification(code, wrongResult.storage, correctStorage);
         }
         
         console.log('❌ تصحيح:', code, '| كان:', JSON.stringify(wrongResult), '| الصح:', correctStorage + 'GB', correctType);
