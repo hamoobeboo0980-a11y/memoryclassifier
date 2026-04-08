@@ -3,7 +3,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>مصنّف الذاكرة</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&amp;display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   
@@ -1279,11 +1278,9 @@ async function analyzeImage(base64, previewSrc) {
     var conf = parsed.confidence || 0;
     console.log('🏆 WINNER: ' + source + ' (conf=' + conf + ') في ' + elapsed + 's');
 
-    // Hard abort - إلغاء حقيقي لكل fetch requests + Tesseract terminate
+    // Hard abort - إلغاء حقيقي لكل fetch requests
     try { abortOCR.abort(); } catch(e) {}
     try { abortGemini.abort(); } catch(e) {}
-    // إيقاف Tesseract Web Worker فعلياً لتحرير الموارد
-    try { if (typeof Tesseract !== 'undefined' && Tesseract.worker) Tesseract.worker.terminate(); } catch(e) {}
 
     stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
@@ -1538,40 +1535,6 @@ async function analyzeImage(base64, previewSrc) {
       unfreezeCamera();
     }
   }
-}
-
-// ═══════════════════════════════════════════════════════
-// Preprocessing للصورة قبل OCR
-// ═══════════════════════════════════════════════════════
-function preprocessForOCR(imgSrc) {
-  return new Promise(function(resolve) {
-    var img = new Image();
-    img.onload = function() {
-      try {
-        var c = document.createElement('canvas');
-        c.width = img.width;
-        c.height = img.height;
-        var ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        // Grayscale
-        var imageData = ctx.getImageData(0, 0, c.width, c.height);
-        var d = imageData.data;
-        for (var i = 0; i < d.length; i += 4) {
-          var gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-          // Contrast boost
-          gray = gray < 128 ? gray * 0.7 : gray * 1.3;
-          gray = Math.max(0, Math.min(255, gray));
-          d[i] = d[i+1] = d[i+2] = gray;
-        }
-        ctx.putImageData(imageData, 0, 0);
-        resolve(c.toDataURL('image/jpeg', 0.95));
-      } catch(e) {
-        resolve(null);
-      }
-    };
-    img.onerror = function() { resolve(null); };
-    img.src = imgSrc;
-  });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1867,8 +1830,11 @@ function submitCorrection() {
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       code: currentCode,
-      wrongStorage: (lastParsed && lastParsed.storage) || '',
-      wrongType: (lastParsed && lastParsed.type) || '',
+      wrongResult: {
+        code: currentCode,
+        storage: (lastParsed && lastParsed.storage) || '',
+        type: (lastParsed && lastParsed.type) || ''
+      },
       correctStorage: storage,
       correctType: type,
       correctRam: ram || null,
