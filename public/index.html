@@ -991,7 +991,8 @@ let cameraActive = false;
 var flashActive = false;
 
 var useBrowserCam = true; // true = كاميرا الموقع, false = كاميرا أصلية
-var codeCache = {}; // كاش للبحث السريع
+var codeCache = (function() { try { var s = localStorage.getItem('ic_code_cache'); return s ? JSON.parse(s) : {}; } catch(e) { return {}; } })(); // كاش ثابت - مش بيتمسح مع الريفرش
+function saveCodeCache() { try { localStorage.setItem('ic_code_cache', JSON.stringify(codeCache)); } catch(e) {} }
 var prevFrame = null;
 var autoProgress = 0;
 var autoInterval = null;
@@ -1823,6 +1824,7 @@ function confirmResult() {
   if (!lastParsed || !currentCode) return;
   // حفظ في الكاش المحلي
   codeCache[currentCode.toUpperCase()] = { storage: lastParsed.storage, type: lastParsed.type, ram: lastParsed.ram || null, company: lastParsed.company };
+  saveCodeCache();
   // إرسال للسيرفر
   fetch('/api/confirm', {
     method: 'POST',
@@ -1860,6 +1862,7 @@ function submitCorrection() {
   
   // حفظ في الكاش المحلي بالقيمة الصح
   codeCache[currentCode.toUpperCase()] = { storage: storage, type: type, ram: ram || null, company: (lastParsed && lastParsed.company) || '' };
+  saveCodeCache();
   
   // إرسال للسيرفر
   fetch('/api/correct', {
