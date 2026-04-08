@@ -1449,6 +1449,11 @@ function detectIntent(message) {
         return 'delete';
     }
     
+    // نية: تعليم كود محدد (مثل: "سجل KMX60013M 32 عادي" أو "حفظ JZ050 32 زجاجي")
+    if (/(سجل|حفظ|احفظ|خزن|ضيف|علم|درب|train|save|register)\s+[A-Z0-9]{4,}/i.test(arabic)) {
+        return 'teach_code';
+    }
+    
     // نية: تعليم قاعدة
     if (/(لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة|الاختصار.*يعني|يعني.*اختصار)/i.test(arabic)) {
         return 'teach_rule';
@@ -1648,6 +1653,59 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // ═══ نية: تعليم كود محدد ═══
+        if (intent === 'teach_code') {
+            // استخراج الكود والمساحة والنوع من الرسالة
+            const codeMatch = message.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
+            const validSizes = ['512','256','128','64','32','16','8'];
+            let sizeFound = null;
+            for (const sz of validSizes) {
+                const re = new RegExp('(?<![A-Z0-9])' + sz + '(?![A-Z0-9])', 'i');
+                if (re.test(message)) { sizeFound = sz; break; }
+            }
+            const isGlass = /زجاجي|glass|emmc/i.test(message);
+            const isNormal = /عادي|normal|bga/i.test(message);
+            const ramMatch = message.match(/(?:ram|رام)\s*[:=]?\s*(\d+\.?\d*)/i);
+            
+            if (!codeMatch) {
+                return res.json({ reply: '❓ محتاج الكود - مثلاً: "سجل KMX60013M 32 عادي"', source: 'system', action: 'teach_ask' });
+            }
+            
+            const teachCode = codeMatch[0].toUpperCase();
+            
+            if (!sizeFound) {
+                return res.json({ reply: '❓ محتاج المساحة - مثلاً: "سجل ' + teachCode + ' 32 عادي"\nالمساحات: 8, 16, 32, 64, 128, 256, 512', source: 'system', action: 'teach_ask' });
+            }
+            
+            const teachType = isGlass ? 'زجاجي' : 'عادي';
+            const teachRam = ramMatch ? ramMatch[1] : null;
+            
+            // هل الكود محفوظ قبل كده؟
+            const existing = findCodeEverywhere(teachCode, learnedCodes);
+            let reply = '';
+            
+            if (existing) {
+                reply += '📋 الكود ده كان محفوظ قبل كده:\n';
+                reply += existing.sourceText + '\n';
+                reply += teachCode + ' → ' + (existing.storage || '?') + 'GB ' + (existing.type || '?') + '\n\n';
+                reply += '🔄 تم تحديثه بالبيانات الجديدة:\n';
+            } else {
+                reply += '🆕 كود جديد!\n';
+            }
+            
+            // حفظ في الكاش والأنماط
+            const result = { code: teachCode, storage: sizeFound, type: teachType, company: detectCompany(teachCode), ram: teachRam || extractRam(teachCode) };
+            setCache(teachCode, result);
+            learnPattern(teachCode, sizeFound, teachType, teachRam || extractRam(teachCode));
+            
+            reply += '✅ تم حفظ ' + teachCode + ' = ' + sizeFound + 'GB ' + teachType;
+            if (teachRam) reply += ' | RAM ' + teachRam + 'GB';
+            reply += '\n\n☁️ تم الحفظ على السحابة - مش هنساه أبداً';
+            reply += '\n📊 عدد الأنماط المتعلمة: ' + Object.keys(learnedPatterns).length;
+            
+            return res.json({ reply, source: 'system', action: 'trained', trainedCode: teachCode });
+        }
+
         // ═══ نية: مصدر الأخطاء ═══
         if (intent === 'error_source') {
             let reply = '📊 تحليل الأخطاء:\n\n';
@@ -1713,10 +1771,25 @@ app.post('/api/chat', async (req, res) => {
             }
         }
 
-        // لو لقينا الكود في مصادرنا - رد بالمصدر
+        // لو لقينا الكود في مصادرنا - رد بالمصدر + هل هو قديم ولا جديد
         if (foundCode) {
             const r = foundCode.result;
-            const reply = r.sourceText + '\n\n' + foundCode.word.toUpperCase() + ' → ' + (r.storage || '?') + 'GB ' + (r.type || '?') + (r.ram ? ' | RAM ' + r.ram + 'GB' : '') + (r.company ? ' | ' + r.company : '');
+            let reply = r.sourceText + '\n\n';
+            reply += foundCode.word.toUpperCase() + ' → ' + (r.storage || '?') + 'GB ' + (r.type || '?');
+            if (r.ram) reply += ' | RAM ' + r.ram + 'GB';
+            if (r.company) reply += ' | ' + r.company;
+            // هل الكود محفوظ في الكاش من قبل ولا جديد
+            if (r.source === 'cache') {
+                reply += '\n\n📋 الكود ده كان محفوظ قبل كده في الكاش';
+            } else if (r.source === 'correction') {
+                reply += '\n\n🧠 الكود ده اتصحح قبل كده من المستخدم';
+            } else if (r.source === 'db') {
+                reply += '\n\n📊 الكود ده موجود في قاعدة البيانات الأصلية';
+            } else if (r.source === 'learned') {
+                reply += '\n\n📖 الكود ده اتعلمناه من تدريب سابق';
+            } else if (r.source === 'pattern') {
+                reply += '\n\n🔄 الكود ده عرفناه من نمط اتعلمناه';
+            }
             return res.json({ reply, source: r.source, action: 'found' });
         }
 
