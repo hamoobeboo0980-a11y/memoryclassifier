@@ -359,8 +359,59 @@ function learnPattern(code, storage, type, ram) {
 loadPatternsFromCloud();
 
 // ═══════════════════════════════════════════════════════════════
-// 3. Cache Lookup Functions
+// 3. safeOCR + Image Hash Cache
 // ═══════════════════════════════════════════════════════════════
+// كاشين منفصلين:
+// 1. ocrCache: كاش نتائج OCR (صورة + prompt → نص)
+// 2. imageResultCache: كاش النتيجة النهائية (صورة → نتيجة كاملة)
+let ocrCache = {};          // { hash: { text, timestamp } }
+let imageResultCache = {};  // { hash: { finalResult, timestamp } }
+
+function simpleHash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h).toString(36);
+}
+
+function imageHash(base64) {
+    // hash من أول 500 حرف + آخر 500 حرف + الطول
+    const s = base64.substring(0, 500) + base64.substring(Math.max(0, base64.length - 500)) + base64.length;
+    return 'img_' + simpleHash(s);
+}
+
+function ocrHash(base64, prompt) {
+    // hash من الصورة + أول 50 حرف من البرومبت (عشان كل prompt يكون له كاش مختلف)
+    const s = base64.substring(0, 500) + base64.length + '|' + prompt.substring(0, 50);
+    return 'ocr_' + simpleHash(s);
+}
+
+async function safeOCR(model, imageBase64, prompt) {
+    const hash = ocrHash(imageBase64, prompt);
+    // لو نفس الصورة + نفس البرومبت اتحللت قبل كده في آخر 5 دقايق
+    if (ocrCache[hash] && (Date.now() - ocrCache[hash].timestamp < 300000)) {
+        console.log('📸 safeOCR كاش: نفس الصورة + نفس البرومبت');
+        return ocrCache[hash].text;
+    }
+    // شيل الـ prefix (data:image/jpeg;base64,) لو موجود - Gemini محتاج base64 خام
+    const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const result = await model.generateContent({
+        contents: [{ parts: [
+            { inlineData: { data: rawBase64, mimeType: "image/jpeg" } },
+            { text: prompt }
+        ]}],
+        generationConfig: { temperature: 0 }
+    });
+    const text = result.response.text().replace(/```/g, '').trim();
+    ocrCache[hash] = { text, timestamp: Date.now() };
+    // تنظيف الكاش القديم (أكتر من 10 دقايق)
+    const now = Date.now();
+    for (const k of Object.keys(ocrCache)) {
+        if (now - ocrCache[k].timestamp > 600000) delete ocrCache[k];
+    }
+    return text;
+}
 
 function getCached(code) {
     if (!code) return null;
@@ -502,14 +553,11 @@ function fuzzySearchInDB(code) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Error Memory - ذاكرة أخطاء OCR الشائعة + أخطاء التصنيف
+// Error Memory - ذاكرة أخطاء OCR الشائعة
 // ═══════════════════════════════════════════════════════════════
 const JBIN_ERRMEM_ID = '69cc4ef0856a682189e95b90';
-let errorMemory = Object.create(null);
-// الشكل: { "B": "8", "O": "0" } = تصحيحات حرف بحرف
-let wrongClassifications = Object.create(null);
-// الشكل: { "KMXX": { wrongStorage: "64", correctStorage: "32", count: 2 } }
-// يسجل أخطاء التصنيف المتكررة عشان نتجنبها
+let errorMemory = {};
+// الشكل: { "B8": 5, "O0": 3 } = عدد مرات تكرار الخطأ
 
 async function loadErrorMemory() {
     try {
@@ -518,18 +566,11 @@ async function loadErrorMemory() {
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        const loadedMemory = (data.record && data.record.memory) ? data.record.memory : {};
-        const loadedWrong = (data.record && data.record.wrongClassifications) ? data.record.wrongClassifications : {};
-        // نسخ البيانات لـ null-prototype objects لمنع prototype pollution
-        errorMemory = Object.create(null);
-        Object.assign(errorMemory, loadedMemory);
-        wrongClassifications = Object.create(null);
-        Object.assign(wrongClassifications, loadedWrong);
-        console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط OCR +', Object.keys(wrongClassifications).length, 'خطأ تصنيف');
+        errorMemory = (data.record && data.record.memory) ? data.record.memory : {};
+        console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط');
     } catch (e) {
         console.log('ذاكرة أخطاء: بدأنا من الصفر -', e.message);
-        errorMemory = Object.create(null);
-        wrongClassifications = Object.create(null);
+        errorMemory = {};
     }
 }
 
@@ -539,9 +580,9 @@ function saveErrorMemory() {
             await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ERRMEM_ID, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'X-Master-Key': JBIN_MASTER },
-                body: JSON.stringify({ memory: errorMemory, wrongClassifications: wrongClassifications })
+                body: JSON.stringify({ memory: errorMemory })
             });
-            console.log('🧠 تم حفظ ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'OCR +', Object.keys(wrongClassifications).length, 'تصنيف');
+            console.log('🧠 تم حفظ ذاكرة الأخطاء:', Object.keys(errorMemory).length);
         } catch (e) {
             console.error('خطأ حفظ ذاكرة الأخطاء:', e.message);
         }
@@ -563,19 +604,6 @@ function applyErrorMemoryFixes(code) {
     return fixed;
 }
 
-// التحقق من أخطاء التصنيف السابقة - لو الكود ده اتصنف غلط قبل كده يتجنب نفس الغلطة
-function checkWrongClassification(code, proposedStorage) {
-    if (!code || !proposedStorage || Object.keys(wrongClassifications).length === 0) return null;
-    const upper = code.toUpperCase().trim();
-    const prefix = upper.substring(0, Math.min(10, upper.length));
-    const entry = wrongClassifications[prefix] || wrongClassifications[upper];
-    if (entry && entry.wrongStorage === proposedStorage) {
-        console.log('⚠️ wrongClassifications: الكود', code, 'اتصنف', proposedStorage, 'قبل كده وكان غلط → الصح', entry.correctStorage);
-        return entry.correctStorage;
-    }
-    return null;
-}
-
 // تعلم خطأ OCR جديد من التصحيح
 function learnOCRError(wrongCode, correctCode) {
     if (!wrongCode || !correctCode || wrongCode === correctCode) return;
@@ -589,22 +617,6 @@ function learnOCRError(wrongCode, correctCode) {
             console.log('🧠 تعلم خطأ OCR:', w[i], '→', c[i]);
         }
     }
-    saveErrorMemory();
-}
-
-// تعلم خطأ تصنيف من التصحيح
-function learnWrongClassification(code, wrongStorage, correctStorage) {
-    if (!code || !wrongStorage || !correctStorage || wrongStorage === correctStorage) return;
-    const upper = code.toUpperCase().trim();
-    const prefix = upper.substring(0, Math.min(10, upper.length));
-    if (!wrongClassifications[prefix]) {
-        wrongClassifications[prefix] = { wrongStorage, correctStorage, count: 1 };
-    } else {
-        wrongClassifications[prefix].count++;
-        wrongClassifications[prefix].wrongStorage = wrongStorage;
-        wrongClassifications[prefix].correctStorage = correctStorage;
-    }
-    console.log('🧠 تعلم خطأ تصنيف:', prefix, '| كان:', wrongStorage, '→ الصح:', correctStorage, '| مرات:', wrongClassifications[prefix].count);
     saveErrorMemory();
 }
 
@@ -696,6 +708,61 @@ app.post('/api/lookup', (req, res) => {
 // looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// /api/candidates - DISABLED (Dead Code - v21 cleanup)
+// الدالة الداخلية getCandidatesForCode لسه شغالة جوه /api/analyze
+// ═══════════════════════════════════════════════════════════════
+/* DISABLED v21
+app.post('/api/candidates', (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code || code.length < 3) return res.json({ candidates: [] });
+        const upper = code.toUpperCase().trim();
+        const candidates = [];
+
+        function addCandidatesFrom(db, type) {
+            for (const [capacity, codes] of Object.entries(db)) {
+                for (const c of codes) {
+                    const cu = c.toUpperCase();
+                    // تطابق أول 2-3 حروف أو prefix مشترك
+                    const prefixLen = Math.min(upper.length, cu.length, 4);
+                    let commonPrefix = 0;
+                    for (let i = 0; i < prefixLen; i++) {
+                        if (upper[i] === cu[i]) commonPrefix++;
+                        else break;
+                    }
+                    if (commonPrefix >= 2 || (upper.length >= 4 && cu.includes(upper.substring(0, 4)))) {
+                        const parts = capacity.split('+');
+                        const storage = type === 'عادي' ? parts[0] : capacity;
+                        let ram = (type === 'عادي' && parts.length > 1) ? parts[1].replace(/D[0-9]|正码|杂码|UMCP/g,'').trim() : null;
+                        if (!ram) ram = extractRam(c);
+                        candidates.push({
+                            code: c, storage, type,
+                            company: detectCompany(c), ram,
+                            similarity: commonPrefix
+                        });
+                    }
+                }
+            }
+        }
+
+        addCandidatesFrom(NORMAL_DB, 'عادي');
+        addCandidatesFrom(EMMC_DB, 'زجاجي');
+        addCandidatesFrom(MICRON_DB, 'زجاجي');
+
+        // ترتيب حسب التشابه ونرجع أعلى 10
+        candidates.sort((a, b) => b.similarity - a.similarity);
+        const top10 = candidates.slice(0, 10);
+        console.log('🎯 Candidates لـ', code, ':', top10.length, 'نتيجة');
+        return res.json({ candidates: top10 });
+    } catch (e) {
+        console.error('candidates error:', e.message);
+        return res.json({ candidates: [] });
+    }
+});
+DISABLED v21 END */
+
+// ═══════════════════════════════════════════════════════════════
 // /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
 // Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
 // ═══════════════════════════════════════════════════════════════
@@ -709,8 +776,17 @@ app.post('/api/analyze', async (req, res) => {
         const pipelineLog = [];
         const logStep = (step, detail) => pipelineLog.push({ step, detail, time: Date.now() });
 
-        logStep('start', 'بداية تحليل الصورة');
+        // كاش على مستوى الصورة
+        const imgHash = imageHash(imageBase64);
+        if (imageResultCache[imgHash] && imageResultCache[imgHash].finalResult && (Date.now() - imageResultCache[imgHash].timestamp < 600000)) {
+            console.log('⚡ نفس الصورة - كاش فوري');
+            const cached = imageResultCache[imgHash].finalResult;
+            cached.confidence = 99;
+            cached.pipeline_log = [{ step: 'image_cache', detail: 'نفس الصورة محفوظة من قبل - كاش فوري' }];
+            return res.json(cached);
+        }
 
+        logStep('start', 'بداية تحليل الصورة');
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -796,7 +872,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
         if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
             logStep('result', 'مفيش كود ذاكرة اتلقى');
             const noResult = { code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'no_code', confidence: 0, pipeline_log: pipelineLog };
-
+            imageResultCache[imgHash] = { finalResult: noResult, timestamp: Date.now() };
             return res.json(noResult);
         }
 
@@ -824,6 +900,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
             dbResult.is_new_code = !previouslySaved;
             console.log('✅ DB exact:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
             setCache(rawCode, dbResult);
+            imageResultCache[imgHash] = { finalResult: dbResult, timestamp: Date.now() };
             return res.json(dbResult);
         }
         logStep('db_search', 'مش موجود بالضبط في الجداول');
@@ -843,6 +920,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 fixedResult.is_new_code = !previouslySaved;
                 console.log('✅ ErrorFix:', rawCode, '→', fixed);
                 setCache(rawCode, fixedResult);
+                imageResultCache[imgHash] = { finalResult: fixedResult, timestamp: Date.now() };
                 return res.json(fixedResult);
             }
         } else {
@@ -865,6 +943,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
             fuzzyResult.is_new_code = !previouslySaved;
             console.log('✅ Fuzzy (dist=' + fuzzy.distance + '):', rawCode, '→', fuzzy.code);
             setCache(rawCode, fuzzyResult);
+            imageResultCache[imgHash] = { finalResult: fuzzyResult, timestamp: Date.now() };
             return res.json(fuzzyResult);
         }
         logStep('fuzzy_search', 'مفيش كود قريب كفاية' + (fuzzy ? ' (أقرب: ' + fuzzy.code + ' مسافة: ' + fuzzy.distance.toFixed(2) + ')' : ''));
@@ -931,6 +1010,7 @@ Return JSON only:
                         selected.is_new_code = !previouslySaved;
                         console.log('✅ RAG (conf=' + confidence + '):', selected);
                         setCache(rawCode, selected);
+                        imageResultCache[imgHash] = { finalResult: selected, timestamp: Date.now() };
                         return res.json(selected);
                     }
                 }
@@ -943,32 +1023,22 @@ Return JSON only:
 
         // ═══════════════════════════════════════════════════════
         // GEMINI DIRECT: لو كل حاجة فشلت → ناخد تصنيف Gemini الأصلي
-        // مع فحص أخطاء التصنيف السابقة
         // ═══════════════════════════════════════════════════════
         if (geminiStorage && geminiType) {
-            // فحص: هل Gemini اقترح مساحة اتصنفت غلط قبل كده لنفس الكود؟
-            let finalStorage = geminiStorage;
-            const correctedStorage = checkWrongClassification(rawCode, geminiStorage);
-            if (correctedStorage) {
-                console.log('⚠️ Gemini Direct: wrongClassifications صحح', geminiStorage, '→', correctedStorage);
-                finalStorage = correctedStorage;
-            }
+            // Gemini صنف في الطلب الأول خلاص - نستخدم تصنيفه
             const geminiDirect = {
-                code: rawCode, storage: finalStorage, type: geminiType,
+                code: rawCode, storage: geminiStorage, type: geminiType,
                 company: geminiCompany || detectCompany(rawCode),
                 ram: geminiRam || extractRam(rawCode),
-                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65
+                step: 'gemini_direct', confidence: 65
             };
-            if (correctedStorage) {
-                geminiDirect.suggestion = 'Gemini قال ' + geminiStorage + ' بس اتصحح لـ ' + correctedStorage + ' من أخطاء سابقة';
-            }
             logStep('gemini_direct', 'استخدام تصنيف Gemini المباشر: ' + geminiStorage + 'GB ' + geminiType);
-            logStep('result', 'النتيجة من تصنيف Gemini المباشر - ثقة ' + geminiDirect.confidence + '%');
+            logStep('result', 'النتيجة من تصنيف Gemini المباشر - ثقة 65%');
             geminiDirect.pipeline_log = pipelineLog;
             geminiDirect.is_new_code = !previouslySaved;
-            console.log('✅ Gemini Direct (conf=' + geminiDirect.confidence + '):', geminiDirect);
-
+            console.log('✅ Gemini Direct (conf=65):', geminiDirect);
             setCache(rawCode, geminiDirect);
+            imageResultCache[imgHash] = { finalResult: geminiDirect, timestamp: Date.now() };
             return res.json(geminiDirect);
         }
 
@@ -983,6 +1053,7 @@ Return JSON only:
         };
         console.log('⚠️ Partial:', finalResult);
         setCache(rawCode, finalResult);
+        imageResultCache[imgHash] = { finalResult, timestamp: Date.now() };
         res.json(finalResult);
 
     } catch (error) {
@@ -1298,11 +1369,6 @@ app.post('/api/correct', (req, res) => {
         // تعلم أخطاء OCR من التصحيح
         if (wrongResult && wrongResult.code && wrongResult.code !== code) {
             learnOCRError(wrongResult.code, code);
-        }
-        
-        // تعلم أخطاء التصنيف (المساحة الغلط vs الصح)
-        if (wrongResult && wrongResult.storage && wrongResult.storage !== correctStorage) {
-            learnWrongClassification(code, wrongResult.storage, correctStorage);
         }
         
         console.log('❌ تصحيح:', code, '| كان:', JSON.stringify(wrongResult), '| الصح:', correctStorage + 'GB', correctType);
@@ -1859,182 +1925,6 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
     } catch (error) {
         console.error("Chat error:", error);
         res.json({ reply: '⚠️ مش قادر أرد دلوقتي - جرب تاني', source: 'error', action: 'error' });
-    }
-});
-
-// ═══════════════════════════════════════════════════════════════
-// /api/analyze-deep - بحث عميق في الصورة الكاملة (Retry path)
-// يُستخدم لما المحاولة الأولى (المربع الصغير) تفشل
-// Gemini يركز ويدور جوه وبره المربع على IC المساحة
-// ═══════════════════════════════════════════════════════════════
-app.post('/api/analyze-deep', async (req, res) => {
-    try {
-        const { imageBase64, learnedCodes } = req.body;
-        if (!imageBase64) return res.status(400).json({ error: "No image provided" });
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-        // DEEP SEARCH PROMPT: بحث مركز في الصورة الكاملة
-        const deepPrompt = `You are an expert memory chip technician examining a circuit board photo.
-
-IMPORTANT: The first scan attempt FAILED to find the memory chip code. You MUST look MORE CAREFULLY.
-
-SEARCH STRATEGY:
-1. Look at the ENTIRE image - not just the center. The memory chip could be ANYWHERE.
-2. The memory chip (IC المساحة) is typically the LARGEST black chip on the board.
-3. It often has VERY SMALL text printed/engraved on it - zoom in mentally on each black chip.
-4. Look for codes starting with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP
-5. IGNORE processor chips (Snapdragon/Qualcomm/Mediatek/SDM/SM/MT) and power chips (PM/WCD/WCN).
-6. The text might be FADED, ANGLED, or PARTIALLY OBSCURED - try to read it anyway.
-7. Correct OCR-like misreads: O↔0, B↔8, S↔5, I↔1, G↔6, Z↔2
-
-CLASSIFICATION RULES:
-Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
-  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
-Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
-SK Hynix H26 (زجاجي eMMC) | H28 (زجاجي UFS)
-Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
-YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
-UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
-Micron JW/JZ (زجاجي)
-
-Return JSON ONLY:
-{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
-If truly no memory chip found after thorough search: {"code":"NOT_FOUND"}`;
-
-        let rawCode = '';
-        let geminiStorage = '';
-        let geminiType = '';
-        let geminiCompany = '';
-        let geminiRam = null;
-
-        try {
-            const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-            const geminiResult = await model.generateContent({
-                contents: [{ parts: [
-                    { inlineData: { mimeType: 'image/jpeg', data: rawBase64 } },
-                    { text: deepPrompt }
-                ]}],
-                generationConfig: { temperature: 0 }
-            });
-            let geminiText = geminiResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
-            console.log('🔬 Deep Search نتيجة:', geminiText);
-            
-            let parsed = null;
-            try {
-                parsed = JSON.parse(geminiText);
-            } catch(e1) {
-                const jsonMatch = geminiText.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
-                parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-            }
-            
-            if (parsed && parsed.code) {
-                rawCode = cleanReadCode(parsed.code);
-                geminiStorage = parsed.storage || '';
-                geminiType = parsed.type || '';
-                geminiCompany = parsed.company || '';
-                geminiRam = parsed.ram || null;
-            }
-        } catch (geminiErr) {
-            console.error('Deep Search فشل:', geminiErr.message);
-            throw geminiErr;
-        }
-
-        // VALIDATION
-        if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3 && !isValidMemoryCode(rawCode)) {
-            console.log('🚫 Deep Validation: كود مش صالح "' + rawCode + '"');
-            rawCode = '';
-        }
-
-        if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
-            return res.json({ code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'deep_no_code', confidence: 0 });
-        }
-
-        // DB LOOKUP أولاً (الأدق)
-        const dbResult = lookupCode(rawCode, learnedCodes);
-        if (dbResult && dbResult.storage && dbResult.type) {
-            dbResult.step = 'deep_db';
-            dbResult.confidence = 93;
-            dbResult.suggestion = 'Deep Search لقاه: ' + rawCode;
-            console.log('✅ Deep DB:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
-            setCache(rawCode, dbResult);
-            return res.json(dbResult);
-        }
-
-        // ErrorMemory fix
-        const fixed = applyErrorMemoryFixes(rawCode.toUpperCase());
-        if (fixed !== rawCode.toUpperCase()) {
-            const fixedResult = lookupCode(fixed, learnedCodes);
-            if (fixedResult && fixedResult.storage && fixedResult.type) {
-                fixedResult.step = 'deep_errorfix';
-                fixedResult.confidence = 88;
-                fixedResult.suggestion = 'Deep Search قرأ ' + rawCode + ' وصححه لـ ' + fixed;
-                console.log('✅ Deep ErrorFix:', rawCode, '→', fixed);
-                setCache(rawCode, fixedResult);
-                return res.json(fixedResult);
-            }
-        }
-
-        // Fuzzy match
-        const fuzzy = fuzzySearchInDB(rawCode);
-        if (fuzzy && fuzzy.distance <= 1.5) {
-            const fuzzyResult = {
-                code: fuzzy.code, storage: fuzzy.storage, type: fuzzy.type,
-                company: fuzzy.company, ram: fuzzy.ram || extractRam(fuzzy.code),
-                suggestion: 'Deep Search قرأ ' + rawCode + ' وأقرب كود ' + fuzzy.code,
-                step: 'deep_fuzzy', confidence: 83
-            };
-            console.log('✅ Deep Fuzzy:', rawCode, '→', fuzzy.code);
-            setCache(rawCode, fuzzyResult);
-            return res.json(fuzzyResult);
-        }
-
-        // Gemini direct classification
-        if (geminiStorage && geminiType) {
-            let finalStorage = geminiStorage;
-            const correctedStorage = checkWrongClassification(rawCode, geminiStorage);
-            if (correctedStorage) {
-                finalStorage = correctedStorage;
-            }
-            const result = {
-                code: rawCode, storage: finalStorage, type: geminiType,
-                company: geminiCompany || detectCompany(rawCode),
-                ram: geminiRam || extractRam(rawCode),
-                step: 'deep_gemini', confidence: correctedStorage ? 73 : 63,
-                suggestion: 'Deep Search صنّفه'
-            };
-            console.log('✅ Deep Gemini Direct:', result);
-            setCache(rawCode, result);
-            return res.json(result);
-        }
-
-        // Partial
-        const finalResult = {
-            code: rawCode, storage: '', type: '', company: detectCompany(rawCode),
-            ram: null, step: 'deep_partial', confidence: 25
-        };
-        console.log('⚠️ Deep Partial:', finalResult);
-        res.json(finalResult);
-
-    } catch (error) {
-        const errText = (error.message || String(error)).toLowerCase();
-        console.error("خطأ Deep Search:", error.message || error);
-        let errMsg = 'خطأ في التحليل العميق';
-        let step = 'deep_failed';
-        
-        if (errText.includes('resource') && errText.includes('exhaust')) {
-            errMsg = 'طلبات كتير - استنى 10 ثواني وجرب تاني';
-            step = 'no_credit';
-        } else if (errText.includes('quota')) {
-            errMsg = 'الرصيد خلص فعلاً';
-            step = 'no_credit';
-        } else if (errText.includes('429') || errText.includes('rate')) {
-            errMsg = 'طلبات كتير - استنى شوية';
-            step = 'no_credit';
-        }
-        res.status(500).json({ error: errMsg, step, confidence: 0 });
     }
 });
 
