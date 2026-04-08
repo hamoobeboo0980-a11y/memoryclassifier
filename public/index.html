@@ -1388,50 +1388,86 @@ async function analyzeImage(base64, previewSrc) {
     }
 
     // ═══════════════════════════════════════════════════════
-    // الخطوة 2: لو OCR فشل → ابعت الصورة الكاملة لـ Gemini للتصنيف
-    // Gemini شاطر في القراءة + التصنيف مع بعض
+    // الخطوة 2: لو OCR فشل → Gemini يقرأ الكود بس (خبير ذاكرة)
+    // التصنيف يمشي في نفس المسارات والجداول الموجودة
     // ═══════════════════════════════════════════════════════
     if (!ocrFound) {
-      console.log('🧠 OCR ملقاش → بنبعت الصورة الكاملة لـ Gemini للتصنيف...');
+      console.log('🧠 OCR ملقاش → بنبعت الصورة الكاملة لـ Gemini يقرأ الكود...');
       lightLED('gemini');
 
       // استخدم الصورة الكاملة (مش المقصوصة) عشان Gemini يشوف أحسن
       var geminiImage = window._lastFullBase64 || base64;
 
       try {
-        var geminiRes = await fetch('/api/analyze', {
+        var geminiRes = await fetch('/api/analyze-full', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ imageBase64: geminiImage, learnedCodes: cloudLearned })
+          body: JSON.stringify({ imageBase64: geminiImage })
         });
 
         if (!geminiRes.ok) {
           var errData = {};
           try { errData = await geminiRes.json(); } catch(e){}
-          var errMsg = (errData && errData.error) || 'فشل التحليل';
-          var errStep = (errData && errData.step) || 'failed';
-          lightLED(errStep);
+          var errMsg = (errData && errData.error) || 'فشل القراءة';
           showFail('❌ ' + errMsg);
           return;
         }
 
-        var parsed = await geminiRes.json();
-        console.log('🧠 Gemini نتيجة:', JSON.stringify(parsed).substring(0, 300));
+        var geminiData = await geminiRes.json();
+        var geminiCode = (geminiData.code || '').trim();
+        console.log('🧠 Gemini قرأ الكود:', geminiCode);
 
-        if (!parsed.confidence) {
-          parsed.confidence = (parsed.storage && parsed.type) ? 70 : 30;
-        }
+        if (geminiCode && geminiCode.length >= 4 && isValidCode(geminiCode)) {
+          // === Gemini جاب كود → نصنفه بنفس مسارات OCR (الجداول) ===
+          var geminiClassified = false;
 
-        // لو Gemini جاب نتيجة (كاملة أو جزئية) → اعرضها
-        if (parsed.code && isValidCode(parsed.code)) {
-          showWinner(parsed, 'Gemini');
+          // 1. Local DB lookup
+          var cleanedCode = ocrCleanup(geminiCode);
+          var localResult = searchInDB(cleanedCode);
+          if (localResult && localResult.storage && localResult.type) {
+            var company = localResult.company || detectCompanyLocal(cleanedCode);
+            showWinner({
+              code: cleanedCode, storage: localResult.storage, type: localResult.type,
+              company: company, ram: localResult.ram || null,
+              step: 'gemini_db', confidence: 90
+            }, 'Gemini+DB');
+            geminiClassified = true;
+          }
+
+          // 2. Server lookup (same as OCR path)
+          if (!geminiClassified) {
+            try {
+              var lookupRes = await fetch('/api/lookup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ code: geminiCode, learnedCodes: cloudLearned, source: 'gemini' })
+              });
+              if (lookupRes.ok) {
+                var lookupData = await lookupRes.json();
+                if (lookupData.found && lookupData.storage && lookupData.type) {
+                  showWinner({
+                    code: lookupData.code || geminiCode, storage: lookupData.storage,
+                    type: lookupData.type, company: lookupData.company || '',
+                    ram: lookupData.ram || null, step: 'gemini_lookup', confidence: 88
+                  }, 'Gemini+Lookup');
+                  geminiClassified = true;
+                }
+              }
+            } catch(e) {
+              console.log('Gemini lookup فشل:', e.message);
+            }
+          }
+
+          // 3. لو الكود جديد مش في أي جدول → اعرضه كجزئي
+          if (!geminiClassified) {
+            showWinner({
+              code: geminiCode, storage: '', type: '',
+              company: detectCompanyLocal(geminiCode),
+              ram: null, step: 'gemini_partial', confidence: 50
+            }, 'Gemini');
+          }
         }
-        // لو Gemini رجع error
-        else if (parsed.error) {
-          lightLED(parsed.step || 'failed');
-          showFail('❌ ' + (parsed.error || 'فشل التحليل - جرب تاني'));
-        }
-        // مفيش كود خالص
+        // Gemini مشفش كود خالص
         else {
           addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
           showFail('❌ مش شايف كود ذاكرة');
