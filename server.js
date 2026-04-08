@@ -622,27 +622,43 @@ app.post('/api/lookup', (req, res) => {
         const isTesseract = (source === 'tesseract');
         console.log('🔍 lookup:', code, '→ cleaned:', cleaned, isTesseract ? '(من Tesseract - بدون fuzzy)' : '');
         
+        const lookupLog = [];
+        lookupLog.push({ step: 'lookup_start', detail: 'بحث عن: "' + cleaned + '"' + (source ? ' (مصدر: ' + source + ')' : '') });
+        
         // === التحقق إن الكود يشبه كود ذاكرة حقيقي (لو من Tesseract) ===
         if (isTesseract && !looksLikeMemoryCode(cleaned)) {
             console.log('⚠️ Tesseract قرأ نص مش شبه كود ذاكرة:', cleaned);
-            return res.json({ found: false, code: cleaned, reason: 'not_memory_code' });
+            lookupLog.push({ step: 'validation', detail: 'الكود مش شبه كود ذاكرة - تم رفضه' });
+            return res.json({ found: false, code: cleaned, reason: 'not_memory_code', pipeline_log: lookupLog });
+        }
+        
+        // هل الكود محفوظ قبل كده؟
+        const previouslySaved = getCached(cleaned);
+        if (previouslySaved) {
+            lookupLog.push({ step: 'history', detail: 'الكود ده محفوظ قبل كده: ' + cleaned + ' → ' + (previouslySaved.storage || '?') + 'GB' });
+        } else {
+            lookupLog.push({ step: 'history', detail: 'الكود ده جديد - أول مرة نشوفه' });
         }
         
         // 1. جرب الكود كما هو (exact match + DB فقط - بدون fuzzy cache)
         let result = lookupCodeStrict(cleaned, learnedCodes);
         if (result) {
             result.source = result.step || 'lookup';
-            return res.json({ found: true, ...result });
+            lookupLog.push({ step: 'found', detail: 'لقيناه! ' + cleaned + ' → ' + (result.storage || '?') + 'GB ' + (result.type || '?') + ' (مصدر: ' + result.source + ')' });
+            return res.json({ found: true, ...result, pipeline_log: lookupLog, is_new_code: !previouslySaved });
         }
+        lookupLog.push({ step: 'exact_search', detail: 'مش موجود بالضبط' });
         
         // 2. جرب بعد تصحيح errorMemory
         const fixed = applyErrorMemoryFixes(upper);
         if (fixed !== upper) {
+            lookupLog.push({ step: 'error_fix', detail: 'تصحيح OCR: "' + cleaned + '" → "' + fixed + '"' });
             result = lookupCodeStrict(fixed, learnedCodes);
             if (result) {
                 result.source = 'errorMemory_fix';
                 result.suggestion = 'قرأته ' + cleaned + ' وصححته لـ ' + fixed;
-                return res.json({ found: true, ...result });
+                lookupLog.push({ step: 'found', detail: 'لقيناه بعد التصحيح! ' + fixed + ' → ' + (result.storage || '?') + 'GB' });
+                return res.json({ found: true, ...result, pipeline_log: lookupLog, is_new_code: !previouslySaved });
             }
         }
         
@@ -650,6 +666,7 @@ app.post('/api/lookup', (req, res) => {
         if (!isTesseract) {
             const fuzzy = fuzzySearchInDB(cleaned);
             if (fuzzy) {
+                lookupLog.push({ step: 'fuzzy_found', detail: 'بحث تقريبي لقى: ' + fuzzy.code + ' (مسافة: ' + (fuzzy.distance || '?') + ')' });
                 return res.json({
                     found: true,
                     code: fuzzy.code,
@@ -659,13 +676,16 @@ app.post('/api/lookup', (req, res) => {
                     ram: fuzzy.ram || extractRam(fuzzy.code),
                     suggestion: 'قرأته ' + cleaned + ' وأقرب كود ' + fuzzy.code,
                     source: 'fuzzy',
-                    step: 'lookup_fuzzy'
+                    step: 'lookup_fuzzy',
+                    pipeline_log: lookupLog,
+                    is_new_code: !previouslySaved
                 });
             }
         }
         
         // 4. مش لاقيه
-        return res.json({ found: false, code: cleaned });
+        lookupLog.push({ step: 'not_found', detail: 'الكود "' + cleaned + '" مش موجود في أي مصدر' });
+        return res.json({ found: false, code: cleaned, pipeline_log: lookupLog, is_new_code: true });
     } catch (error) {
         console.error('lookup error:', error.message);
         return res.json({ found: false });
@@ -684,6 +704,13 @@ app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+
+        // سجل خطوات التحليل - كل خطوة بالتفصيل
+        const pipelineLog = [];
+        const logStep = (step, detail) => pipelineLog.push({ step, detail, time: Date.now() });
+
+        logStep('start', 'بداية تحليل الصورة');
+
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -745,8 +772,12 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 geminiType = parsed.type || '';
                 geminiCompany = parsed.company || '';
                 geminiRam = parsed.ram || null;
+                logStep('gemini_read', 'Gemini قرأ الكود: "' + rawCode + '"' + (geminiStorage ? ' | صنّفه: ' + geminiStorage + 'GB ' + geminiType : ''));
+            } else {
+                logStep('gemini_read', 'Gemini مش شايف كود ذاكرة في الصورة');
             }
         } catch (geminiErr) {
+            logStep('gemini_read', 'Gemini فشل: ' + geminiErr.message);
             console.error('Gemini Single-Pass فشل:', geminiErr.message);
             throw geminiErr;
         }
@@ -755,13 +786,26 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
         // VALIDATION GATE: هل الكود صالح؟
         // ═══════════════════════════════════════════════════════
         if (rawCode && rawCode !== 'NOT_FOUND' && rawCode.length >= 3 && !isValidMemoryCode(rawCode)) {
+            logStep('validation', 'كود "' + rawCode + '" مش صالح - تم رفضه');
             console.log('🚫 Validation Gate: كود مش صالح "' + rawCode + '"');
             rawCode = '';
+        } else if (rawCode && rawCode !== 'NOT_FOUND') {
+            logStep('validation', 'كود "' + rawCode + '" صالح ✅');
         }
 
         if (!rawCode || rawCode === 'NOT_FOUND' || rawCode.length < 3) {
-            const noResult = { code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'no_code', confidence: 0 };
+            logStep('result', 'مفيش كود ذاكرة اتلقى');
+            const noResult = { code: 'NOT_FOUND', storage: '', type: '', company: '', ram: null, step: 'no_code', confidence: 0, pipeline_log: pipelineLog };
+
             return res.json(noResult);
+        }
+
+        // هل الكود محفوظ قبل كده؟
+        const previouslySaved = getCached(rawCode);
+        if (previouslySaved) {
+            logStep('history', 'الكود ده محفوظ قبل كده في الكاش: ' + rawCode + ' → ' + (previouslySaved.storage || '?') + 'GB ' + (previouslySaved.type || '?'));
+        } else {
+            logStep('history', 'الكود ده جديد - أول مرة نشوفه: ' + rawCode);
         }
 
         // ═══════════════════════════════════════════════════════
@@ -769,30 +813,44 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
         // ═══════════════════════════════════════════════════════
         
         // Exact match
+        logStep('db_search', 'بحث دقيق عن "' + rawCode + '" في الجداول...');
         const dbResult = lookupCode(rawCode, learnedCodes);
         if (dbResult && dbResult.storage && dbResult.type) {
             dbResult.step = 'db_exact';
             dbResult.confidence = 95;
+            logStep('db_found', 'لقيناه! ' + rawCode + ' → ' + dbResult.storage + 'GB ' + dbResult.type + ' (مصدر: ' + (dbResult.step || 'الجدول') + ')');
+            logStep('result', 'النتيجة من مطابقة دقيقة في قاعدة البيانات - ثقة 95%');
+            dbResult.pipeline_log = pipelineLog;
+            dbResult.is_new_code = !previouslySaved;
             console.log('✅ DB exact:', rawCode, '→', dbResult.storage + 'GB', dbResult.type);
             setCache(rawCode, dbResult);
             return res.json(dbResult);
         }
+        logStep('db_search', 'مش موجود بالضبط في الجداول');
         
         // ErrorMemory fix
         const fixed = applyErrorMemoryFixes(rawCode.toUpperCase());
         if (fixed !== rawCode.toUpperCase()) {
+            logStep('error_fix', 'تصحيح OCR: "' + rawCode + '" → "' + fixed + '"');
             const fixedResult = lookupCode(fixed, learnedCodes);
             if (fixedResult && fixedResult.storage && fixedResult.type) {
                 fixedResult.step = 'db_errorfix';
                 fixedResult.confidence = 90;
                 fixedResult.suggestion = 'قرأته ' + rawCode + ' وصححته لـ ' + fixed;
+                logStep('db_found', 'لقيناه بعد التصحيح! ' + fixed + ' → ' + fixedResult.storage + 'GB ' + fixedResult.type);
+                logStep('result', 'النتيجة من تصحيح OCR + مطابقة - ثقة 90%');
+                fixedResult.pipeline_log = pipelineLog;
+                fixedResult.is_new_code = !previouslySaved;
                 console.log('✅ ErrorFix:', rawCode, '→', fixed);
                 setCache(rawCode, fixedResult);
                 return res.json(fixedResult);
             }
+        } else {
+            logStep('error_fix', 'مفيش تصحيحات OCR مطلوبة');
         }
 
         // Fuzzy match (distance < 1.5)
+        logStep('fuzzy_search', 'بحث تقريبي عن "' + rawCode + '"...');
         const fuzzy = fuzzySearchInDB(rawCode);
         if (fuzzy && fuzzy.distance <= 1.5) {
             const fuzzyResult = {
@@ -801,16 +859,22 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 suggestion: 'قرأته ' + rawCode + ' وأقرب كود ' + fuzzy.code,
                 step: 'db_fuzzy', confidence: 85
             };
+            logStep('fuzzy_found', 'أقرب كود: ' + fuzzy.code + ' (مسافة: ' + fuzzy.distance.toFixed(2) + ') → ' + fuzzy.storage + 'GB ' + fuzzy.type);
+            logStep('result', 'النتيجة من بحث تقريبي - ثقة 85%');
+            fuzzyResult.pipeline_log = pipelineLog;
+            fuzzyResult.is_new_code = !previouslySaved;
             console.log('✅ Fuzzy (dist=' + fuzzy.distance + '):', rawCode, '→', fuzzy.code);
             setCache(rawCode, fuzzyResult);
             return res.json(fuzzyResult);
         }
+        logStep('fuzzy_search', 'مفيش كود قريب كفاية' + (fuzzy ? ' (أقرب: ' + fuzzy.code + ' مسافة: ' + fuzzy.distance.toFixed(2) + ')' : ''));
 
         // ═══════════════════════════════════════════════════════
         // RAG SELECTOR: لو DB ملقاش → Gemini يختار من candidates
         // (طلب Gemini تاني بس بدون صورة = أسرع بكتير)
         // ═══════════════════════════════════════════════════════
         const candidates = getCandidatesForCode(rawCode);
+        logStep('rag_candidates', 'جلب مرشحين مشابهين: ' + candidates.length + ' كود' + (candidates.length > 0 ? ' (أقربهم: ' + candidates.slice(0,3).map(c => c.code).join(', ') + ')' : ''));
         
         if (candidates.length > 0) {
             const candidateList = candidates.map((c, i) => 
@@ -832,6 +896,7 @@ Return JSON only:
 {"code":"CORRECT_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","matched_from_list":true/false}`;
 
             try {
+                logStep('rag_select', 'Gemini بيختار من المرشحين...');
                 const selectResult = await model.generateContent({
                     contents: [{ parts: [{ text: selectorPrompt }] }],
                     generationConfig: { temperature: 0 }
@@ -860,12 +925,18 @@ Return JSON only:
                         selected.step = 'rag_selector';
                         selected.confidence = confidence;
                         selected.suggestion = 'قرأته ' + rawCode + (selected.code !== rawCode ? ' واختار ' + selected.code : '');
+                        logStep('rag_result', 'Gemini اختار: ' + selected.code + ' → ' + selected.storage + 'GB ' + selected.type + (selected.matched_from_list ? ' (من القائمة)' : ' (تحليل)'));
+                        logStep('result', 'النتيجة من RAG Selector - ثقة ' + confidence + '%');
+                        selected.pipeline_log = pipelineLog;
+                        selected.is_new_code = !previouslySaved;
                         console.log('✅ RAG (conf=' + confidence + '):', selected);
                         setCache(rawCode, selected);
                         return res.json(selected);
                     }
                 }
+                logStep('rag_select', 'RAG مش واثق في النتيجة');
             } catch (selErr) {
+                logStep('rag_select', 'RAG فشل: ' + selErr.message);
                 console.error('RAG Selector فشل:', selErr.message);
             }
         }
@@ -891,7 +962,12 @@ Return JSON only:
             if (correctedStorage) {
                 geminiDirect.suggestion = 'Gemini قال ' + geminiStorage + ' بس اتصحح لـ ' + correctedStorage + ' من أخطاء سابقة';
             }
+            logStep('gemini_direct', 'استخدام تصنيف Gemini المباشر: ' + geminiStorage + 'GB ' + geminiType);
+            logStep('result', 'النتيجة من تصنيف Gemini المباشر - ثقة ' + geminiDirect.confidence + '%');
+            geminiDirect.pipeline_log = pipelineLog;
+            geminiDirect.is_new_code = !previouslySaved;
             console.log('✅ Gemini Direct (conf=' + geminiDirect.confidence + '):', geminiDirect);
+
             setCache(rawCode, geminiDirect);
             return res.json(geminiDirect);
         }
@@ -899,9 +975,11 @@ Return JSON only:
         // ═══════════════════════════════════════════════════════
         // PARTIAL: كود بدون تصنيف
         // ═══════════════════════════════════════════════════════
+        logStep('result', 'كل الطرق فشلت - الكود "' + rawCode + '" محتاج تعريف يدوي');
         const finalResult = {
             code: rawCode, storage: '', type: '', company: detectCompany(rawCode),
-            ram: null, step: 'partial', confidence: 30
+            ram: null, step: 'partial', confidence: 30,
+            pipeline_log: pipelineLog, is_new_code: !previouslySaved
         };
         console.log('⚠️ Partial:', finalResult);
         setCache(rawCode, finalResult);
@@ -1305,6 +1383,11 @@ function detectIntent(message) {
         return 'delete';
     }
     
+    // نية: تعليم كود محدد (مثل: "سجل KMX60013M 32 عادي" أو "حفظ JZ050 32 زجاجي")
+    if (/(سجل|حفظ|احفظ|خزن|ضيف|علم|درب|train|save|register)\s+[A-Z0-9]{4,}/i.test(arabic)) {
+        return 'teach_code';
+    }
+    
     // نية: تعليم قاعدة
     if (/(لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة|الاختصار.*يعني|يعني.*اختصار)/i.test(arabic)) {
         return 'teach_rule';
@@ -1504,6 +1587,59 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // ═══ نية: تعليم كود محدد ═══
+        if (intent === 'teach_code') {
+            // استخراج الكود والمساحة والنوع من الرسالة
+            const codeMatch = message.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
+            const validSizes = ['512','256','128','64','32','16','8'];
+            let sizeFound = null;
+            for (const sz of validSizes) {
+                const re = new RegExp('(?<![A-Z0-9])' + sz + '(?![A-Z0-9])', 'i');
+                if (re.test(message)) { sizeFound = sz; break; }
+            }
+            const isGlass = /زجاجي|glass|emmc/i.test(message);
+            const isNormal = /عادي|normal|bga/i.test(message);
+            const ramMatch = message.match(/(?:ram|رام)\s{0,5}[:=]?\s{0,5}(\d+\.?\d*)/i);
+            
+            if (!codeMatch) {
+                return res.json({ reply: '❓ محتاج الكود - مثلاً: "سجل KMX60013M 32 عادي"', source: 'system', action: 'teach_ask' });
+            }
+            
+            const teachCode = codeMatch[0].toUpperCase();
+            
+            if (!sizeFound) {
+                return res.json({ reply: '❓ محتاج المساحة - مثلاً: "سجل ' + teachCode + ' 32 عادي"\nالمساحات: 8, 16, 32, 64, 128, 256, 512', source: 'system', action: 'teach_ask' });
+            }
+            
+            const teachType = isGlass ? 'زجاجي' : 'عادي';
+            const teachRam = ramMatch ? ramMatch[1] : null;
+            
+            // هل الكود محفوظ قبل كده؟
+            const existing = findCodeEverywhere(teachCode, learnedCodes);
+            let reply = '';
+            
+            if (existing) {
+                reply += '📋 الكود ده كان محفوظ قبل كده:\n';
+                reply += existing.sourceText + '\n';
+                reply += teachCode + ' → ' + (existing.storage || '?') + 'GB ' + (existing.type || '?') + '\n\n';
+                reply += '🔄 تم تحديثه بالبيانات الجديدة:\n';
+            } else {
+                reply += '🆕 كود جديد!\n';
+            }
+            
+            // حفظ في الكاش والأنماط
+            const result = { code: teachCode, storage: sizeFound, type: teachType, company: detectCompany(teachCode), ram: teachRam || extractRam(teachCode) };
+            setCache(teachCode, result);
+            learnPattern(teachCode, sizeFound, teachType, teachRam || extractRam(teachCode));
+            
+            reply += '✅ تم حفظ ' + teachCode + ' = ' + sizeFound + 'GB ' + teachType;
+            if (teachRam) reply += ' | RAM ' + teachRam + 'GB';
+            reply += '\n\n☁️ تم الحفظ على السحابة - مش هنساه أبداً';
+            reply += '\n📊 عدد الأنماط المتعلمة: ' + Object.keys(learnedPatterns).length;
+            
+            return res.json({ reply, source: 'system', action: 'trained', trainedCode: teachCode });
+        }
+
         // ═══ نية: مصدر الأخطاء ═══
         if (intent === 'error_source') {
             let reply = '📊 تحليل الأخطاء:\n\n';
@@ -1569,10 +1705,25 @@ app.post('/api/chat', async (req, res) => {
             }
         }
 
-        // لو لقينا الكود في مصادرنا - رد بالمصدر
+        // لو لقينا الكود في مصادرنا - رد بالمصدر + هل هو قديم ولا جديد
         if (foundCode) {
             const r = foundCode.result;
-            const reply = r.sourceText + '\n\n' + foundCode.word.toUpperCase() + ' → ' + (r.storage || '?') + 'GB ' + (r.type || '?') + (r.ram ? ' | RAM ' + r.ram + 'GB' : '') + (r.company ? ' | ' + r.company : '');
+            let reply = r.sourceText + '\n\n';
+            reply += foundCode.word.toUpperCase() + ' → ' + (r.storage || '?') + 'GB ' + (r.type || '?');
+            if (r.ram) reply += ' | RAM ' + r.ram + 'GB';
+            if (r.company) reply += ' | ' + r.company;
+            // هل الكود محفوظ في الكاش من قبل ولا جديد
+            if (r.source === 'cache') {
+                reply += '\n\n📋 الكود ده كان محفوظ قبل كده في الكاش';
+            } else if (r.source === 'correction') {
+                reply += '\n\n🧠 الكود ده اتصحح قبل كده من المستخدم';
+            } else if (r.source === 'db') {
+                reply += '\n\n📊 الكود ده موجود في قاعدة البيانات الأصلية';
+            } else if (r.source === 'learned') {
+                reply += '\n\n📖 الكود ده اتعلمناه من تدريب سابق';
+            } else if (r.source === 'pattern') {
+                reply += '\n\n🔄 الكود ده عرفناه من نمط اتعلمناه';
+            }
             return res.json({ reply, source: r.source, action: 'found' });
         }
 
