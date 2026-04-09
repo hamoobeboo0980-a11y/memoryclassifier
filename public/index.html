@@ -1251,16 +1251,11 @@ async function analyzeImage(base64, previewSrc) {
   showError(false);
 
   // ═══════════════════════════════════════════════════════
-  // SPEED-FIRST HYBRID SYSTEM v23
-  // FAST = Primary UI (عرض فوري) | Gemini = Background Verification
+  // SEQUENTIAL FLOW v28
+  // OCR أولاً (سريع) → لو فشل → Gemini fallback (أدق وأذكى)
+  // نفس منطق التصنيف ونفس ترتيب المسار
   // ═══════════════════════════════════════════════════════
-  var raceWon = false;
-  var abortOCR = new AbortController();
-  var abortGemini = new AbortController();
   var startTime = Date.now();
-  var fastResult = null;     // نتيجة FAST للعرض الفوري
-  var geminiDone = false;    // هل Gemini خلص؟
-  var geminiResult = null;   // نتيجة Gemini للتحقق
 
   // Validation Gate - التحقق من صحة النتيجة
   function validateResult(parsed) {
@@ -1271,16 +1266,10 @@ async function analyzeImage(base64, previewSrc) {
     return false;
   }
 
-  function submitWinner(parsed, source) {
-    if (raceWon) return false;
-    raceWon = true;
+  function showWinner(parsed, source) {
     var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     var conf = parsed.confidence || 0;
     console.log('🏆 WINNER: ' + source + ' (conf=' + conf + ') في ' + elapsed + 's');
-
-    // Hard abort - إلغاء حقيقي لكل fetch requests
-    try { abortOCR.abort(); } catch(e) {}
-    try { abortGemini.abort(); } catch(e) {}
 
     stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
@@ -1326,214 +1315,141 @@ async function analyzeImage(base64, previewSrc) {
     isAnalyzing = false;
     unfreezeCamera();
     if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-    return true;
   }
 
+  function showFail(errorMsg) {
+    stopLEDAnimation();
+    lightLED('failed');
+    stopScanBar(false);
+    showLoading(false);
+    showError(errorMsg || '❌ مش شايف كود ذاكرة');
+    isAnalyzing = false;
+    unfreezeCamera();
+    if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+  }
 
-
-  // ═══════════════════════════════════════════════════════
-  // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
-  // v25: بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5ث)
-  // ═══════════════════════════════════════════════════════
-  var ocrPromise = (async function() {
+  try {
+    // ═══════════════════════════════════════════════════════
+    // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
+    // v28: يشتغل الأول - لو نجح يعرض فوراً
+    // ═══════════════════════════════════════════════════════
+    var ocrResult = null;
     try {
-      if (abortOCR.signal.aborted) return null;
-
-      // إرسال الصورة لـ Vision OCR API على السيرفر
+      console.log('🔤 Step 1: OCR بيبدأ...');
       var visionRes = await fetch('/api/vision-ocr', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64 }),
-        signal: abortOCR.signal
+        body: JSON.stringify({ imageBase64: base64 })
       });
-      if (abortOCR.signal.aborted || raceWon) return null;
-      if (!visionRes.ok) {
-        console.log('⚠️ Vision OCR API فشل:', visionRes.status);
-        return null;
-      }
-      var visionData = await visionRes.json();
-      if (abortOCR.signal.aborted || raceWon) return null;
 
-      var ocrText = (visionData.text || '').trim();
-      console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
-      if (!ocrText || ocrText.length < 3) return null;
+      if (visionRes.ok) {
+        var visionData = await visionRes.json();
+        var ocrText = (visionData.text || '').trim();
+        console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
 
-      // تنظيف وبحث في DB
-      var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
-      // أضف النص كاملاً كسطر إضافي
-      lines.unshift(ocrText);
-      for (var li = 0; li < lines.length; li++) {
-        if (raceWon || abortOCR.signal.aborted) return null;
-        var line = ocrCleanup(lines[li]);
-        if (line.length < 4) continue;
-        // LOCAL DB lookup
-        var localResult = searchInDB(line);
-        if (localResult && localResult.storage && localResult.type) {
-          var company = localResult.company || detectCompanyLocal(line);
-          var result = {
-            code: line, storage: localResult.storage, type: localResult.type,
-            company: company, ram: localResult.ram || null,
-            step: 'vision_db', confidence: 93
-          };
-          // FAST = Primary UI Path - يعرض فوراً!
-          fastResult = result;
-          submitWinner(result, 'FAST');
-          return result;
-        }
-      }
+        if (ocrText && ocrText.length >= 3) {
+          // تنظيف وبحث في DB
+          var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
+          lines.unshift(ocrText);
+          for (var li = 0; li < lines.length; li++) {
+            var line = ocrCleanup(lines[li]);
+            if (line.length < 4) continue;
+            // LOCAL DB lookup - نفس منطق التصنيف
+            var localResult = searchInDB(line);
+            if (localResult && localResult.storage && localResult.type) {
+              var company = localResult.company || detectCompanyLocal(line);
+              ocrResult = {
+                code: line, storage: localResult.storage, type: localResult.type,
+                company: company, ram: localResult.ram || null,
+                step: 'vision_db', confidence: 93
+              };
+              break;
+            }
+          }
 
-      // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر
-      if (!raceWon && ocrText.length >= 4) {
-        var lookupRes = await fetch('/api/lookup', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' }),
-          signal: abortOCR.signal
-        });
-        if (!abortOCR.signal.aborted && !raceWon && lookupRes.ok) {
-          var lookupData = await lookupRes.json();
-          if (lookupData.found && lookupData.storage && lookupData.type) {
-            var result2 = {
-              code: lookupData.code || ocrText, storage: lookupData.storage,
-              type: lookupData.type, company: lookupData.company || '',
-              ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
-            };
-            fastResult = result2;
-            submitWinner(result2, 'FAST');
-            return result2;
+          // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر (نفس ترتيب المسار)
+          if (!ocrResult && ocrText.length >= 4) {
+            var lookupRes = await fetch('/api/lookup', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' })
+            });
+            if (lookupRes.ok) {
+              var lookupData = await lookupRes.json();
+              if (lookupData.found && lookupData.storage && lookupData.type) {
+                ocrResult = {
+                  code: lookupData.code || ocrText, storage: lookupData.storage,
+                  type: lookupData.type, company: lookupData.company || '',
+                  ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
+                };
+              }
+            }
           }
         }
+      } else {
+        console.log('⚠️ Vision OCR API فشل:', visionRes.status);
       }
-      return null;
     } catch(e) {
-      if (e.name === 'AbortError') { console.log('Vision OCR ألغي'); return null; }
-      console.log('Vision OCR فشل:', e.message);
-      return null;
+      console.log('⚠️ Vision OCR فشل:', e.message);
     }
-  })();
 
-  // ═══════════════════════════════════════════════════════
-  // المسار 2: Gemini Vision (True RAG + Confidence)
-  // ═══════════════════════════════════════════════════════
-  var geminiPromise = (async function() {
+    // لو OCR نجح → نعرض النتيجة فوراً
+    if (ocrResult && validateResult(ocrResult)) {
+      console.log('✅ OCR نجح - بيعرض النتيجة');
+      showWinner(ocrResult, 'FAST');
+      return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // المسار 2: Gemini fallback (أذكى وأدق)
+    // بيشتغل بس لو OCR فشل - نفس منطق التصنيف
+    // ═══════════════════════════════════════════════════════
+    console.log('🧠 Step 2: OCR فشل → Gemini بيبدأ...');
     try {
-      if (raceWon || abortGemini.signal.aborted) return null;
       var geminiRes = await fetch('/api/analyze', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned }),
-        signal: abortGemini.signal
+        body: JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned })
       });
-      if (raceWon || abortGemini.signal.aborted) return null;
+
       if (!geminiRes.ok) {
         var errData = {};
         try { errData = await geminiRes.json(); } catch(e){}
-        return { error: true, data: errData };
+        var errStep = (errData && errData.step) || 'failed';
+        lightLED(errStep);
+        showFail('❌ ' + ((errData && errData.error) || 'فشل التحليل - جرب تاني'));
+        return;
       }
+
       var parsed = await geminiRes.json();
       if (!parsed.code) parsed = {code:'', storage:'', type:'', company:''};
-      // السيرفر بيرجع confidence جاهز
       if (!parsed.confidence) {
         parsed.confidence = (parsed.storage && parsed.type) ? 70 : 30;
       }
-      
-      if (parsed.code && isValidCode(parsed.code)) {
-        geminiDone = true;
-        geminiResult = parsed;
-        
-        // لو FAST لسه معرضش → Gemini يعرض هو (fallback)
-        if (!raceWon && parsed.storage && parsed.type) {
-          console.log('🧠 Gemini يعرض (FAST ملحقش)');
-          submitWinner(parsed, 'Gemini');
-          return parsed;
-        }
-        
-        // لو FAST عرض خلاص → Gemini يتحقق في الخلف (Post-Validation)
-        if (raceWon && fastResult) {
-          if (parsed.storage && parsed.type && parsed.code !== fastResult.code) {
-            console.log('🔄 Post-Validation: Gemini يقول ' + parsed.code + ' مش ' + fastResult.code);
-            // تسجيل التصحيح للتعلم
-            addChatMsg('المساعد', '🔄 Gemini صحح: ' + parsed.code + ' - ' + parsed.storage + 'GB ' + parsed.type + ' (كان ' + fastResult.code + ')', 'bot');
-            // تحديث العرض بنتيجة Gemini الأدق
-            lastParsed = parsed;
-            currentCode = parsed.code;
-            var manualInput = document.getElementById('manualCode');
-            if (manualInput) manualInput.value = parsed.code;
-            displayResult(parsed.code, {
-              storage: parsed.storage, type: parsed.type,
-              ram: parsed.ram || null,
-              capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
-            }, parsed.company);
-            var txt = document.getElementById('statusText');
-            var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            if (txt) txt.textContent = '🔄 Gemini صحح (' + elapsed + 's)';
-          } else {
-            console.log('✅ Post-Validation: Gemini وافق على FAST');
-          }
-        }
-      }
-      return parsed;
-    } catch(e) {
-      if (e.name === 'AbortError') { console.log('Gemini ألغي - OCR كسب'); return null; }
-      console.log('Gemini فشل:', e.message);
-      return { error: true, data: { error: e.message, step: 'failed' } };
-    }
-  })();
 
-  // ═══════════════════════════════════════════════════════
-  // PARALLEL WAIT: الاتنين شغالين - FAST يكسب فوراً + Gemini يتحقق في الخلف
-  // ═══════════════════════════════════════════════════════
-  try {
-    // نستنى الاتنين يخلصوا - بس FAST ممكن يكسب في أي لحظة ويعرض فوراً
-    // Gemini بيكمل في الخلف للتحقق (Post-Validation)
-    await Promise.allSettled([ocrPromise, geminiPromise]);
-    
-    // لو محدش كسب لغاية دلوقتي → fallback
-    if (!raceWon) {
-      // لو Gemini جاب نتيجة كاملة → يكسب
-      if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code) && geminiResult.storage && geminiResult.type) {
-        console.log('🧠 Fallback: Gemini يكسب');
-        submitWinner(geminiResult, 'Gemini');
+      if (parsed.code && isValidCode(parsed.code)) {
+        if (parsed.storage && parsed.type) {
+          console.log('🧠 Gemini نجح - بيعرض النتيجة');
+          showWinner(parsed, 'Gemini');
+          return;
+        }
+        // Gemini جاب كود بس بدون تصنيف كامل
+        console.log('🧠 Gemini partial - كود بدون تصنيف');
+        showWinner(parsed, 'Gemini');
+        return;
       }
-      // لو Gemini جاب كود بس بدون تصنيف
-      else if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code)) {
-        console.log('🧠 Fallback: Gemini partial');
-        submitWinner(geminiResult, 'Gemini');
-      }
-      // لو Gemini فشل وفي error
-      else if (geminiResult && geminiResult.error) {
-        stopLEDAnimation();
-        lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
-        stopScanBar(false);
-        showLoading(false);
-        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-      }
-      // مفيش حاجة خالص
-      else {
-        stopLEDAnimation();
-        lightLED('failed');
-        stopScanBar(false);
-        showLoading(false);
-        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-        showError('❌ مش شايف كود ذاكرة');
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-      }
+
+      // Gemini مرجعش حاجة صالحة
+      addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+      showFail('❌ مش شايف كود ذاكرة');
+
+    } catch(e) {
+      console.log('⚠️ Gemini فشل:', e.message);
+      showFail('⚠️ خطأ في الاتصال\n' + e.message);
     }
+
   } catch(e) {
-    if (!raceWon) {
-      stopLEDAnimation();
-      lightLED('failed');
-      stopScanBar(false);
-      showLoading(false);
-      showError('⚠️ خطأ في الاتصال\n' + e.message);
-      isAnalyzing = false;
-      unfreezeCamera();
-    }
+    showFail('⚠️ خطأ في الاتصال\n' + e.message);
   }
 }
 
