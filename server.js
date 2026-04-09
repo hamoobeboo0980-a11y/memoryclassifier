@@ -695,25 +695,32 @@ app.post('/api/analyze', async (req, res) => {
 
 STEP 1 - READ: Find the MEMORY chip and read its code.
 IMPORTANT - CHIP SELECTION:
-- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP
+- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28/HN8 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP | Kingston
 - COMPLETELY IGNORE these chips (they are NOT memory): Snapdragon, Qualcomm, MediaTek, SDM, SM-, MT (processor/SoC) + PM/WCD/WCN (power management)
 - RAM and storage info come ONLY from the memory IC code - never from processor/SoC chips
 - If image shows full board from far away, look carefully for the memory chip among multiple chips
 - Even if you can only read 1-2 characters on a chip, report exactly what you see in the "code" field
 Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
 
-STEP 2 - CLASSIFY using these rules:
-Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
-  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
-Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
+STEP 2 - CLASSIFY: Once you identify the company, look at the EXACT location described below.
+
+=== عادي (Normal BGA) ===
+Samsung KM: LINE 3 of chip - find letter before 100/200/600/700/800/900 → N=8G|E=16G|X/D=32G|C/H/P=64G|G/V=128G|F/S=256G
+  RAM from same code: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
+SK Hynix H9: LINE 2 - digits after first 4 chars → 17/18/19=16G|26/27=32G|52/53=64G|16=128G
   RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
-SK Hynix H26 (زجاجي eMMC) | H28 (زجاجي UFS)
-Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
-YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
-UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
-Micron JW/JZ (زجاجي)
+Kingston (TAIWAN): LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
+SanDisk SDIN (TAIWAN): LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+
+=== زجاجي (eMMC/UFS) ===
+Samsung KLM/KLU eMMC: LINE 3 → AG=16G|BG=32G|CG=64G|DG=128G|EG=256G|FG=512G
+SK Hynix H26/H28/HN8: LINE 1 → 54=16G|64=32G|74=64G|88=128G|9=256G
+Toshiba THG (TAIWAN/JAPAN): LINE 3 → G7=16G|G8=32G|G9=64G|T0=128G|T1=256G|T2=512G
+SanDisk SDIN (CHINA): LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+Micron JW/JZ: full code lookup from table - no abbreviations
+YMEC: bottom-left of chip → YMEC6=32G|YMEC7=64G|YMEC8=128G|YMEC9=256G
+UNIC: last line → 05G=32G|06G=64G|07G=128G
+Kingston eMMC (CHINA): LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
 ${expertKnowledge}
 Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
@@ -1779,11 +1786,28 @@ app.post('/api/chat', async (req, res) => {
 هذه صورة بورد موبايل عليها شرائح.
 
 مهم جداً:
-- دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28 أو Toshiba THG أو YMEC أو UNIC
+- دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28/HN8 أو Toshiba THG أو SanDisk SDIN أو Kingston أو YMEC أو UNIC أو Micron JW/JZ
 - تجاهل تماماً أي ايسي رام أو بروسيسور مكتوب عليه MediaTek أو Qualcomm أو Snapdragon أو SDM أو MT - دول مالهمش دعوة
 - بيانات الذاكرة والرام هتستخرجهم من الكود المنقوش على ايسي الذاكرة نفسه
 - لو الصورة من بعيد وفيها شرائح كتير، اختار ايسي الذاكرة الصح
 - لو مش واضح غير حرف أو اتنين، قول بالظبط اللي شايفه على الايسي
+
+دليل مكان الاختصار لكل شركة:
+📌 عادي (BGA):
+- Samsung KM: السطر 3 - الحرف قبل 100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
+- SK Hynix H9: السطر 2 - الرقم بعد أول 4 حروف → 17/18/19=16|26/27=32|52/53=64|16=128
+- Kingston (TAIWAN): السطر 4 يسار - المساحة مكتوبة صريحة
+- SanDisk SDIN (TAIWAN): السطر 2 - المساحة مكتوبة صريحة
+
+📌 زجاجي (eMMC/UFS):
+- Samsung KLM/KLU: السطر 3 → AG=16|BG=32|CG=64|DG=128|EG=256|FG=512
+- SK Hynix H26/H28/HN8: السطر 1 → 54=16|64=32|74=64|88=128|9=256
+- Toshiba THG: السطر 3 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
+- SanDisk SDIN (CHINA): السطر 2 أو 3 - صريحة
+- Micron JW/JZ: الكود كامل من الجدول
+- YMEC: أسفل يسار → 6=32|7=64|8=128|9=256
+- UNIC: آخر سطر → 05G=32|06G=64|07G=128
+- Kingston eMMC (CHINA): السطر 4 - صريحة مع EMMC
 
 1. اقرأ كود ايسي الذاكرة
 2. حلل الكود وقولي: الشركة، المساحة، النوع (عادي BGA / زجاجي EMMC)، الرام لو ممكن
@@ -1972,13 +1996,17 @@ ${buildExpertKnowledge()}
 
 معلومات عنك:
 - بتساعد في تصنيف شرائح الذاكرة (عادي BGA / زجاجي EMMC)
-- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC
+- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC, Kingston
 - العادي = BGA (بيتلحم على البورد)
 - الزجاجي = EMMC (بيتركب في سوكيت)
 - مالكش دعوة بايسي الرام أو البروسيسور (MediaTek, Qualcomm, Snapdragon) - تجاهلهم تماماً
 - بيانات الذاكرة والرام بتستخرجهم من الكود المنقوش على ايسي الذاكرة بس
 - لو الصورة من بعيد، لازم تختار ايسي الذاكرة الصح مش أي ايسي تاني
 - لو مش شايف غير حرف أو اتنين على الايسي، قول اللي شايفه بالظبط
+
+دليل مكان اختصار كل شركة:
+عادي: Samsung KM(سطر3) | Hynix H9(سطر2) | Kingston TAIWAN(سطر4) | SanDisk TAIWAN(سطر2)
+زجاجي: Samsung KLM/KLU(سطر3) | Hynix H26/H28/HN8(سطر1) | Toshiba THG(سطر3) | SanDisk CHINA(سطر2-3) | Micron JW/JZ(كامل) | YMEC(أسفل يسار) | UNIC(آخر سطر) | Kingston CHINA(سطر4)
 
 ${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
