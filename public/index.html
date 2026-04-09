@@ -1520,28 +1520,40 @@ async function analyzeImage(base64, previewSrc) {
         console.log('🧠 Fallback: Gemini partial');
         submitWinner(geminiResult, 'Gemini');
       }
-      // لو Gemini فشل وفي error
+      // لو Gemini فشل وفي error → جرب تحليل مباشر من الشات
       else if (geminiResult && geminiResult.error) {
         stopLEDAnimation();
         lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
         stopScanBar(false);
         showLoading(false);
-        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
+        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - بيجرب من الشات...'));
         isAnalyzing = false;
         unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        // تحليل مباشر من الشات تلقائي
+        if (window._lastCapturedImage) {
+          addChatMsg('المساعد', '🔄 التحليل الأساسي فشل - بيجرب تحليل مباشر من الشات...', 'bot');
+          setTimeout(function() { sendImageToChat(); }, 500);
+        } else {
+          if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        }
       }
-      // مفيش حاجة خالص
+      // مفيش حاجة خالص → جرب تحليل مباشر من الشات
       else {
         stopLEDAnimation();
         lightLED('failed');
         stopScanBar(false);
         showLoading(false);
-        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-        showError('❌ مش شايف كود ذاكرة');
+        showError('❌ مش شايف كود ذاكرة - بيجرب من الشات...');
         isAnalyzing = false;
         unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        // تحليل مباشر من الشات تلقائي
+        if (window._lastCapturedImage) {
+          addChatMsg('المساعد', '🔄 مش شايف كود - بيجرب تحليل مباشر من الشات...', 'bot');
+          setTimeout(function() { sendImageToChat(); }, 500);
+        } else {
+          addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+          if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+        }
       }
     }
   } catch(e) {
@@ -1550,9 +1562,14 @@ async function analyzeImage(base64, previewSrc) {
       lightLED('failed');
       stopScanBar(false);
       showLoading(false);
-      showError('⚠️ خطأ في الاتصال\n' + e.message);
+      showError('⚠️ خطأ في الاتصال - بيجرب من الشات...');
       isAnalyzing = false;
       unfreezeCamera();
+      // تحليل مباشر من الشات تلقائي
+      if (window._lastCapturedImage) {
+        addChatMsg('المساعد', '🔄 خطأ في الاتصال - بيجرب تحليل مباشر من الشات...', 'bot');
+        setTimeout(function() { sendImageToChat(); }, 500);
+      }
     }
   }
 }
