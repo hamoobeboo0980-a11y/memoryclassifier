@@ -693,9 +693,13 @@ app.post('/api/analyze', async (req, res) => {
         const expertKnowledge = buildExpertKnowledge();
         const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
 
-STEP 1 - READ: Find the memory chip (large black chip) and read its code.
-Memory chips start with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP
-IGNORE: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (processor) + PM/WCD/WCN (power)
+STEP 1 - READ: Find the MEMORY chip and read its code.
+IMPORTANT - CHIP SELECTION:
+- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP
+- COMPLETELY IGNORE these chips (they are NOT memory): Snapdragon, Qualcomm, MediaTek, SDM, SM-, MT (processor/SoC) + PM/WCD/WCN (power management)
+- RAM and storage info come ONLY from the memory IC code - never from processor/SoC chips
+- If image shows full board from far away, look carefully for the memory chip among multiple chips
+- Even if you can only read 1-2 characters on a chip, report exactly what you see in the "code" field
 Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
 
 STEP 2 - CLASSIFY using these rules:
@@ -713,6 +717,7 @@ Micron JW/JZ (زجاجي)
 ${expertKnowledge}
 Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
+If you can see a chip but can only read partial text (even 1-2 chars): {"code":"WHAT_YOU_SEE","storage":"","type":"","company":"","ram":null}
 If no memory chip found: {"code":"NOT_FOUND"}`;
 
         let rawCode = '';
@@ -1771,10 +1776,18 @@ app.post('/api/chat', async (req, res) => {
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                 const imagePrompt = `أنت خبير في شرائح الذاكرة (Memory IC chips). بتتكلم مصري.
-هذه صورة شريحة ذاكرة على بورد موبايل. 
-1. اقرأ كود الشريحة (الشريحة السوداء الكبيرة)
+هذه صورة بورد موبايل عليها شرائح.
+
+مهم جداً:
+- دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28 أو Toshiba THG أو YMEC أو UNIC
+- تجاهل تماماً أي ايسي رام أو بروسيسور مكتوب عليه MediaTek أو Qualcomm أو Snapdragon أو SDM أو MT - دول مالهمش دعوة
+- بيانات الذاكرة والرام هتستخرجهم من الكود المنقوش على ايسي الذاكرة نفسه
+- لو الصورة من بعيد وفيها شرائح كتير، اختار ايسي الذاكرة الصح
+- لو مش واضح غير حرف أو اتنين، قول بالظبط اللي شايفه على الايسي
+
+1. اقرأ كود ايسي الذاكرة
 2. حلل الكود وقولي: الشركة، المساحة، النوع (عادي BGA / زجاجي EMMC)، الرام لو ممكن
-3. لو مش واضحة قولي إيه الي شايفه وأقرب تخمين
+3. لو مش واضحة قولي إيه اللي شايفه بالظبط حتى لو حرف واحد وأقرب تخمين
 
 ${buildExpertKnowledge()}
 
@@ -1962,6 +1975,10 @@ ${buildExpertKnowledge()}
 - بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC
 - العادي = BGA (بيتلحم على البورد)
 - الزجاجي = EMMC (بيتركب في سوكيت)
+- مالكش دعوة بايسي الرام أو البروسيسور (MediaTek, Qualcomm, Snapdragon) - تجاهلهم تماماً
+- بيانات الذاكرة والرام بتستخرجهم من الكود المنقوش على ايسي الذاكرة بس
+- لو الصورة من بعيد، لازم تختار ايسي الذاكرة الصح مش أي ايسي تاني
+- لو مش شايف غير حرف أو اتنين على الايسي، قول اللي شايفه بالظبط
 
 ${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
