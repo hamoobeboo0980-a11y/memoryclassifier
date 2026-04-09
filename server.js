@@ -1863,6 +1863,72 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
 });
 
 // ═══════════════════════════════════════════════════════════════
+// /api/analyze-full - Gemini يقرأ الكود بس (خبير ذاكرة)
+// بيشتغل بعد فشل OCR فقط - التصنيف يسيبه للجداول
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/analyze-full', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: 'No image', code: '' });
+
+        const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+        const expertPrompt = `You are an expert memory IC chip reader. Your ONLY job is to read the code printed on the memory chip.
+
+RULES:
+- Look ONLY for the memory IC chip (the large black chip on the circuit board)
+- Memory chip codes start with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, SDAP, JW, JZ, YMEC, TY, 08EMCP, 16EMCP
+- IGNORE everything else: Snapdragon, Qualcomm, Mediatek, SDM, SM, MT (processor), PM, WCD, WCN (power IC)
+- Read the code character by character exactly as printed
+- Report EXACTLY what you see - no guessing, no hallucination
+- Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
+- If no memory chip found → return NO_IC
+- If code is unclear → return whatever you can read
+
+Return ONLY the memory chip code text, nothing else. No JSON, no explanation.
+Example: KMQ310013M-B419`;
+
+        const result = await model.generateContent({
+            contents: [{ parts: [
+                { inlineData: { data: rawBase64, mimeType: 'image/jpeg' } },
+                { text: expertPrompt }
+            ]}],
+            generationConfig: { temperature: 0 }
+        });
+
+        let text = result.response.text().replace(/```/g, '').trim();
+        console.log('🧠 Gemini Expert Reader:', text);
+
+        // تنظيف - لو رجع جملة بدل كود
+        text = cleanReadCode(text);
+
+        if (!text || text === 'NO_IC' || text === 'NOT_FOUND' || text.length < 3) {
+            return res.json({ code: '', source: 'gemini_expert' });
+        }
+
+        // Validation: لازم يكون كود ذاكرة صالح
+        if (!isValidMemoryCode(text)) {
+            console.log('🚫 Gemini Expert: كود مش صالح "' + text + '"');
+            return res.json({ code: '', source: 'gemini_expert' });
+        }
+
+        res.json({ code: text, source: 'gemini_expert' });
+
+    } catch (error) {
+        const errText = (error.message || '').toLowerCase();
+        console.error('Gemini Expert error:', error.message);
+        let errMsg = 'خطأ في القراءة';
+        if (errText.includes('resource') && errText.includes('exhaust')) {
+            errMsg = 'طلبات كتير - استنى 10 ثواني';
+        } else if (errText.includes('429') || errText.includes('rate')) {
+            errMsg = 'طلبات كتير - استنى شوية';
+        }
+        res.status(500).json({ error: errMsg, code: '' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // /api/analyze-deep - بحث عميق في الصورة الكاملة (Retry path)
 // يُستخدم لما المحاولة الأولى (المربع الصغير) تفشل
 // Gemini يركز ويدور جوه وبره المربع على IC المساحة
@@ -2050,21 +2116,9 @@ app.post('/api/vision-ocr', async (req, res) => {
         const VISION_KEY = process.env.GOOGLE_VISION_KEY || '';
 
         if (!VISION_KEY) {
-            // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
-            console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-            const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-            const ocrPrompt = `Read ONLY the memory chip code from this image. Memory chips start with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP.\nReturn ONLY the code text, nothing else. If not found return: NOT_FOUND`;
-            const result = await model.generateContent({
-                contents: [{ parts: [
-                    { inlineData: { data: rawBase64, mimeType: 'image/jpeg' } },
-                    { text: ocrPrompt }
-                ]}],
-                generationConfig: { temperature: 0 }
-            });
-            const text = result.response.text().replace(/```/g, '').trim();
-            console.log('🔤 Gemini OCR fallback:', text);
-            return res.json({ text: text === 'NOT_FOUND' ? '' : text, source: 'gemini_ocr' });
+            // مفيش Vision key → نرجع فاضي - Gemini هيشتغل في المرحلة التانية بس
+            console.log('⚠️ GOOGLE_VISION_KEY غير موجود - OCR مش متاح');
+            return res.json({ text: '', source: 'none' });
         }
 
         // Google Cloud Vision API
