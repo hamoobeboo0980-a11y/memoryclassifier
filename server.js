@@ -520,7 +520,7 @@ function createSafeStore(source) {
 }
 
 function hasStoreEntries(store) {
-    for (const _key in store) {
+    for (const key in store) {
         return true;
     }
     return false;
