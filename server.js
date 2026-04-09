@@ -1806,6 +1806,42 @@ app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+if (require.main === module) {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Module exports for testing
+// ═══════════════════════════════════════════════════════════════
+module.exports = {
+    app,
+    extractRam,
+    searchInDB,
+    detectCompany,
+    isValidMemoryCode,
+    looksLikeMemoryCode,
+    fuzzySearchInDB,
+    cleanReadCode,
+    getCandidatesForCode,
+    applyErrorMemoryFixes,
+    checkWrongClassification,
+    learnOCRError,
+    learnWrongClassification,
+    learnPattern,
+    lookupCode,
+    lookupCodeStrict,
+    getCached,
+    getCachedStrict,
+    setCache,
+    NORMAL_DB,
+    EMMC_DB,
+    MICRON_DB,
+    SAMSUNG_RAM_MAP,
+    HYNIX_RAM_MAP,
+    errorMemory,
+    wrongClassifications,
+    learnedPatterns,
+    resultCache
+};
