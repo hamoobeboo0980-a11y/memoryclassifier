@@ -63,7 +63,6 @@
   .led[data-step="careful"].active { background: #ff9100; color: #ff9100; }
   .led[data-step="fuzzy"].active { background: #ff4081; color: #ff4081; }
   .led[data-step="gemini"].active { background: #8d6e63; color: #8d6e63; }
-  .led[data-step="deep"].active { background: #e040fb; color: #e040fb; }
   .led[data-step="failed"].active { background: #ff1744; color: #ff1744; }
   .led[data-step="no_credit"].active { background: #000; color: #555; box-shadow: 0 0 6px 2px #333; }
 
@@ -872,7 +871,6 @@
     <div class="led" data-step="careful" title="بعناية"></div>
     <div class="led" data-step="fuzzy" title="تصحيح ذكي"></div>
     <div class="led" data-step="gemini" title="Gemini"></div>
-    <div class="led" data-step="deep" title="بحث عميق"></div>
     <div class="led" data-step="failed" title="فشل"></div>
     <div class="led" data-step="no_credit" title="رصيد"></div>
   </div>
@@ -942,18 +940,6 @@
     </div>
   </div>
 
-  <!-- Pipeline Details - تفاصيل التحليل -->
-  <div id="pipelineCard" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:16px;margin:8px 0;overflow:hidden">
-    <div onclick="togglePipeline()" style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
-      🔬 <span style="color:#ffab00;font-weight:700">تفاصيل التحليل</span>
-      <span style="font-size:11px">- كل الخطوات من أول الصورة للنتيجة</span>
-      <span id="pipelineToggle" style="margin-right:auto;font-size:14px;transition:transform 0.2s">▼</span>
-    </div>
-    <div id="pipelineBody" style="max-height:250px;overflow-y:auto;padding:0;transition:max-height 0.3s ease">
-      <div id="pipelineSteps" style="padding:8px 12px;display:flex;flex-direction:column;gap:3px;font-size:11px;font-family:monospace;direction:rtl"></div>
-    </div>
-  </div>
-
   <!-- Chat Section - تحت النتيجة -->
   <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;margin:8px 0;overflow:hidden">
     <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
@@ -1004,8 +990,7 @@ let cameraActive = false;
 var flashActive = false;
 
 var useBrowserCam = true; // true = كاميرا الموقع, false = كاميرا أصلية
-var codeCache = (function() { try { var s = localStorage.getItem('ic_code_cache'); return s ? JSON.parse(s) : {}; } catch(e) { console.log('codeCache load error:', e.message); return {}; } })(); // كاش ثابت - مش بيتمسح مع الريفرش
-function saveCodeCache() { try { localStorage.setItem('ic_code_cache', JSON.stringify(codeCache)); } catch(e) { console.log('codeCache save error:', e.message); } }
+var codeCache = {}; // كاش للبحث السريع
 var prevFrame = null;
 var autoProgress = 0;
 var autoInterval = null;
@@ -1013,7 +998,7 @@ var autoInterval = null;
 // ═══════════════════════════════════════
 // LED INDICATORS + PROGRESS BAR
 // ═══════════════════════════════════════
-var LED_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','deep','failed','no_credit'];
+var LED_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','failed','no_credit'];
 
 function resetLEDs() {
   LED_STEPS.forEach(function(s) {
@@ -1058,8 +1043,8 @@ function lightLED(stepName) {
 var ledAnimTimer = null;
 var ledAnimStep = 0;
 // الخطوات الأولى (كاش/تصحيحات/جداول/متعلم) بتعدي بسرعة، الباقي ببطء
-var LED_ANIM_DELAYS = [300, 300, 400, 400, 1500, 2500, 1500, 1500, 3000];
-var LED_ANIM_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini','deep'];
+var LED_ANIM_DELAYS = [300, 300, 400, 400, 1500, 2500, 1500, 1500];
+var LED_ANIM_STEPS = ['cache','correction','db','learned','fast','careful','fuzzy','gemini'];
 
 function startLEDAnimation() {
   stopLEDAnimation();
@@ -1108,137 +1093,6 @@ function stopScanBar(success) {
   setTimeout(function() {
     if (bar) bar.className = 'progress-bar';
   }, 3000);
-}
-
-// ═══════════════════════════════════════
-// PIPELINE DETAILS - تفاصيل التحليل
-// ═══════════════════════════════════════
-var pipelineExpanded = true;
-var currentPipelineLog = [];
-
-function togglePipeline() {
-  pipelineExpanded = !pipelineExpanded;
-  var body = document.getElementById('pipelineBody');
-  var toggle = document.getElementById('pipelineToggle');
-  if (body) body.style.maxHeight = pipelineExpanded ? '250px' : '0px';
-  if (toggle) toggle.style.transform = pipelineExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
-}
-
-function showPipelineLog(logs, source) {
-  var card = document.getElementById('pipelineCard');
-  var stepsEl = document.getElementById('pipelineSteps');
-  if (!card || !stepsEl) return;
-  
-  currentPipelineLog = logs || [];
-  stepsEl.innerHTML = '';
-  
-  if (!logs || logs.length === 0) {
-    card.style.display = 'none';
-    return;
-  }
-  
-  card.style.display = 'block';
-  
-  // إضافة مصدر الفوز
-  if (source) {
-    var sourceDiv = document.createElement('div');
-    sourceDiv.style.cssText = 'color:#ffab00;font-weight:700;margin-bottom:4px;font-family:Cairo,sans-serif;font-size:12px';
-    sourceDiv.textContent = '🏆 الفائز: ' + source;
-    stepsEl.appendChild(sourceDiv);
-  }
-  
-  var stepIcons = {
-    'start': '🚀', 'gemini_read': '🧠', 'validation': '🔒', 'history': '📋',
-    'db_search': '📊', 'db_found': '✅', 'error_fix': '🔧', 'fuzzy_search': '🔍',
-    'fuzzy_found': '🎯', 'rag_candidates': '📋', 'rag_select': '🤖', 'rag_result': '🎯',
-    'gemini_direct': '🧠', 'result': '🏁', 'image_cache': '⚡',
-    'lookup_start': '🔍', 'found': '✅', 'exact_search': '📊', 'not_found': '❌',
-    'vision_read': '👁️'
-  };
-  
-  var stepColors = {
-    'start': '#888', 'gemini_read': '#bb86fc', 'validation': '#03dac6', 'history': '#ffab00',
-    'db_search': '#448aff', 'db_found': '#00e676', 'error_fix': '#ff9100', 'fuzzy_search': '#ff4081',
-    'fuzzy_found': '#00e676', 'rag_candidates': '#7c4dff', 'rag_select': '#8d6e63', 'rag_result': '#00e676',
-    'gemini_direct': '#bb86fc', 'result': '#00e676', 'image_cache': '#ffea00',
-    'lookup_start': '#448aff', 'found': '#00e676', 'exact_search': '#448aff', 'not_found': '#ff1744',
-    'vision_read': '#03dac6'
-  };
-  
-  logs.forEach(function(entry) {
-    var div = document.createElement('div');
-    var icon = stepIcons[entry.step] || '▸';
-    var color = stepColors[entry.step] || '#888';
-    div.style.cssText = 'padding:3px 6px;border-radius:6px;background:rgba(255,255,255,0.03);border-right:3px solid ' + color + ';color:#ccc;line-height:1.6;font-family:Cairo,sans-serif;font-size:11px';
-    div.textContent = icon + ' ' + (entry.detail || entry.step);
-    stepsEl.appendChild(div);
-  });
-}
-
-function addPipelineStep(step, detail) {
-  currentPipelineLog.push({ step: step, detail: detail });
-  showPipelineLog(currentPipelineLog);
-}
-
-// بناء رسالة المساعد الذكية بعد التصنيف
-function buildSmartAssistantMsg(parsed, source, elapsed) {
-  var conf = parsed.confidence || 0;
-  var code = parsed.code || '';
-  var parts = [];
-  
-  // 1. حالة الكود: جديد ولا قديم
-  if (parsed.is_new_code === true) {
-    parts.push('🆕 كود جديد أول مرة نشوفه');
-  } else if (parsed.is_new_code === false) {
-    parts.push('📋 الكود ده محفوظ قبل كده');
-  } else {
-    // is_new_code غير متاح - نشيك في الكاش المحلي
-    if (code && codeCache[code.toUpperCase()]) {
-      parts.push('📋 الكود ده محفوظ في الكاش المحلي');
-    }
-  }
-  
-  // 2. النتيجة
-  if (parsed.storage && parsed.type) {
-    parts.push('📦 ' + code + ' → ' + parsed.storage + 'GB ' + parsed.type);
-  } else {
-    parts.push('⚠️ كود جديد: ' + code + ' - محتاج تعريف');
-  }
-  
-  // 3. مصدر النتيجة
-  var stepLabels = {
-    'db_exact': '📊 من مطابقة دقيقة في قاعدة البيانات',
-    'db_errorfix': '🔧 من تصحيح OCR + مطابقة',
-    'db_fuzzy': '🔍 من بحث تقريبي (أقرب كود)',
-    'rag_selector': '🤖 Gemini اختار من قائمة مرشحين',
-    'gemini_direct': '🧠 تصنيف Gemini مباشر',
-    'partial': '❓ الكود محتاج تعريف يدوي',
-    'cache': '⚡ من الكاش (محفوظ)',
-    'correction': '🧠 من تصحيح سابق',
-    'learned': '📖 من كود اتعلمناه',
-    'pattern': '🔄 من نمط متعلم',
-    'vision_db': '👁️ قراءة سريعة + مطابقة',
-    'vision_lookup': '👁️ قراءة سريعة + بحث'
-  };
-  var stepLabel = stepLabels[parsed.step] || ('📌 ' + (parsed.step || 'غير محدد'));
-  parts.push(stepLabel);
-  
-  // 4. التصحيح لو فيه
-  if (parsed.suggestion) {
-    parts.push('💡 ' + parsed.suggestion);
-  }
-  
-  // 5. الوقت والثقة
-  parts.push('⏱️ ' + source + ' (' + elapsed + 's) 🎯' + conf + '%');
-  
-  // 6. طلب تأكيد
-  if (parsed.storage && parsed.type) {
-    parts.push('صح ولا غلط؟');
-  } else {
-    parts.push('اكتب المساحة والنوع');
-  }
-  
-  return parts.join('\n');
 }
 
 var BUILTIN_EXAMPLES = [
@@ -1385,11 +1239,10 @@ function unfreezeCamera() {
   }
 }
 
-async function analyzeImage(base64, previewSrc, fullBase64) {
+async function analyzeImage(base64, previewSrc) {
   if (isAnalyzing) return;
   isAnalyzing = true;
   lastBase64 = base64;
-  if (fullBase64) window._lastFullBase64 = fullBase64; // حفظ الصورة الكاملة للـ Deep Retry (مطلوب global عشان async)
   resetLEDs();
   startLEDAnimation();
   startScanBar();
@@ -1398,20 +1251,36 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
   showError(false);
 
   // ═══════════════════════════════════════════════════════
-  // SEQUENTIAL SYSTEM v26
-  // الخطوة 1: OCR سريع → DB lookup (بدون Gemini)
-  // الخطوة 2: لو فشل → الصورة الكاملة لـ Gemini للتصنيف
+  // SPEED-FIRST HYBRID SYSTEM v23
+  // FAST = Primary UI (عرض فوري) | Gemini = Background Verification
   // ═══════════════════════════════════════════════════════
+  var raceWon = false;
+  var abortOCR = new AbortController();
+  var abortGemini = new AbortController();
   var startTime = Date.now();
-  var won = false;
+  var fastResult = null;     // نتيجة FAST للعرض الفوري
+  var geminiDone = false;    // هل Gemini خلص؟
+  var geminiResult = null;   // نتيجة Gemini للتحقق
 
-  function showWinner(parsed, source) {
-    if (won) return false;
-    won = true;
+  // Validation Gate - التحقق من صحة النتيجة
+  function validateResult(parsed) {
+    if (!parsed || !parsed.code) return false;
+    if (!isValidCode(parsed.code)) return false;
+    if (parsed.storage && parsed.type) return true;
+    if (parsed.code && parsed.code.length >= 4) return true;
+    return false;
+  }
+
+  function submitWinner(parsed, source) {
+    if (raceWon) return false;
+    raceWon = true;
     var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     var conf = parsed.confidence || 0;
     console.log('🏆 WINNER: ' + source + ' (conf=' + conf + ') في ' + elapsed + 's');
 
+    // Hard abort - إلغاء حقيقي لكل fetch requests
+    try { abortOCR.abort(); } catch(e) {}
+    try { abortGemini.abort(); } catch(e) {}
 
     stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
@@ -1421,14 +1290,6 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
     currentCode = detectedCode;
     var manualInput = document.getElementById('manualCode');
     if (manualInput) manualInput.value = detectedCode;
-    
-    // عرض تفاصيل التحليل
-    var allLogs = (parsed.pipeline_log || []).slice();
-    // إضافة خطوات الـ frontend
-    if (visionOcrText) {
-      allLogs.unshift({ step: 'vision_read', detail: 'Vision OCR قرأ: "' + visionOcrText.substring(0, 100) + '"' });
-    }
-    showPipelineLog(allLogs, source);
 
     if (parsed.storage && parsed.type) {
       stopScanBar(true);
@@ -1449,8 +1310,8 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
       var confColor = conf >= 90 ? '#00e676' : conf >= 70 ? '#00ff88' : '#ffab00';
       if (dot) { dot.style.background = confColor; dot.style.boxShadow = '0 0 10px ' + confColor; }
       if (txt) txt.textContent = '✅ ' + source + ' (' + elapsed + 's) [' + conf + '%]';
-      // رسالة المساعد الذكية
-      addChatMsg('المساعد', buildSmartAssistantMsg(parsed, source, elapsed), 'bot');
+      var sourceInfo = parsed.suggestion ? ' (تصحيح: ' + parsed.suggestion + ')' : '';
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' [' + source + ' ' + elapsed + 's 🎯' + conf + '%] - صح ولا غلط؟', 'bot');
     } else {
       stopScanBar(false);
       updateStats(parsed.company, false);
@@ -1460,8 +1321,7 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
       document.getElementById('correctionForm').style.display = 'block';
       sessionCount++;
       document.getElementById('sessionCount').textContent = sessionCount;
-      // رسالة المساعد الذكية
-      addChatMsg('المساعد', buildSmartAssistantMsg(parsed, source, elapsed), 'bot');
+      addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - اكتب المساحة والنوع [' + source + ' ' + elapsed + 's]', 'bot');
     }
     isAnalyzing = false;
     unfreezeCamera();
@@ -1469,173 +1329,211 @@ async function analyzeImage(base64, previewSrc, fullBase64) {
     return true;
   }
 
-  function showFail(msg) {
-    if (won) return;
-    stopLEDAnimation();
-    lightLED('failed');
-    stopScanBar(false);
-    showLoading(false);
-    showError(msg || '❌ مش شايف كود ذاكرة');
-    isAnalyzing = false;
-    unfreezeCamera();
-    if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-  }
 
-  try {
-    // ═══════════════════════════════════════════════════════
-    // الخطوة 1: Vision OCR → DB Lookup (سريع - بدون Gemini)
-    // ═══════════════════════════════════════════════════════
-    var ocrFound = false;
+
+  // ═══════════════════════════════════════════════════════
+  // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
+  // v25: بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5ث)
+  // ═══════════════════════════════════════════════════════
+  var ocrPromise = (async function() {
     try {
+      if (abortOCR.signal.aborted) return null;
+
+      // إرسال الصورة لـ Vision OCR API على السيرفر
       var visionRes = await fetch('/api/vision-ocr', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64 })
+        body: JSON.stringify({ imageBase64: base64 }),
+        signal: abortOCR.signal
       });
-      if (visionRes.ok) {
-        var visionData = await visionRes.json();
-        var ocrText = (visionData.text || '').trim();
-        console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
-
-        if (ocrText && ocrText.length >= 3) {
-          // تنظيف وبحث في DB
-          var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
-          lines.unshift(ocrText);
-          for (var li = 0; li < lines.length; li++) {
-            var line = ocrCleanup(lines[li]);
-            if (line.length < 4) continue;
-            var localResult = searchInDB(line);
-            if (localResult && localResult.storage && localResult.type) {
-              var company = localResult.company || detectCompanyLocal(line);
-              showWinner({
-                code: line, storage: localResult.storage, type: localResult.type,
-                company: company, ram: localResult.ram || null,
-                step: 'vision_db', confidence: 93
-              }, 'FAST');
-              ocrFound = true;
-              break;
-            }
-          }
-
-          // لو ملقاش محلياً - جرب /api/lookup على السيرفر
-          if (!ocrFound && ocrText.length >= 4) {
-            var lookupRes = await fetch('/api/lookup', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' })
-            });
-            if (lookupRes.ok) {
-              var lookupData = await lookupRes.json();
-              if (lookupData.found && lookupData.storage && lookupData.type) {
-                showWinner({
-                  code: lookupData.code || ocrText, storage: lookupData.storage,
-                  type: lookupData.type, company: lookupData.company || '',
-                  ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
-                }, 'FAST');
-                ocrFound = true;
-              }
-            }
-          }
-        }
-      } else {
+      if (abortOCR.signal.aborted || raceWon) return null;
+      if (!visionRes.ok) {
         console.log('⚠️ Vision OCR API فشل:', visionRes.status);
+        return null;
       }
-    } catch(e) {
-      console.log('Vision OCR فشل:', e.message);
-    }
+      var visionData = await visionRes.json();
+      if (abortOCR.signal.aborted || raceWon) return null;
 
-    // ═══════════════════════════════════════════════════════
-    // الخطوة 2: لو OCR فشل → Gemini يقرأ الكود بس (خبير ذاكرة)
-    // التصنيف يمشي في نفس المسارات والجداول الموجودة
-    // ═══════════════════════════════════════════════════════
-    if (!ocrFound) {
-      console.log('🧠 OCR ملقاش → بنبعت الصورة الكاملة لـ Gemini يقرأ الكود...');
-      lightLED('gemini');
+      var ocrText = (visionData.text || '').trim();
+      console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
+      if (!ocrText || ocrText.length < 3) return null;
 
-      // استخدم الصورة الكاملة (مش المقصوصة) عشان Gemini يشوف أحسن
-      var geminiImage = window._lastFullBase64 || base64;
+      // تنظيف وبحث في DB
+      var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
+      // أضف النص كاملاً كسطر إضافي
+      lines.unshift(ocrText);
+      for (var li = 0; li < lines.length; li++) {
+        if (raceWon || abortOCR.signal.aborted) return null;
+        var line = ocrCleanup(lines[li]);
+        if (line.length < 4) continue;
+        // LOCAL DB lookup
+        var localResult = searchInDB(line);
+        if (localResult && localResult.storage && localResult.type) {
+          var company = localResult.company || detectCompanyLocal(line);
+          var result = {
+            code: line, storage: localResult.storage, type: localResult.type,
+            company: company, ram: localResult.ram || null,
+            step: 'vision_db', confidence: 93
+          };
+          // FAST = Primary UI Path - يعرض فوراً!
+          fastResult = result;
+          submitWinner(result, 'FAST');
+          return result;
+        }
+      }
 
-      try {
-        var geminiRes = await fetch('/api/analyze-full', {
+      // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر
+      if (!raceWon && ocrText.length >= 4) {
+        var lookupRes = await fetch('/api/lookup', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ imageBase64: geminiImage })
+          body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' }),
+          signal: abortOCR.signal
         });
-
-        if (!geminiRes.ok) {
-          var errData = {};
-          try { errData = await geminiRes.json(); } catch(e){}
-          var errMsg = (errData && errData.error) || 'فشل القراءة';
-          showFail('❌ ' + errMsg);
-          return;
-        }
-
-        var geminiData = await geminiRes.json();
-        var geminiCode = (geminiData.code || '').trim();
-        console.log('🧠 Gemini قرأ الكود:', geminiCode);
-
-        if (geminiCode && geminiCode.length >= 4 && isValidCode(geminiCode)) {
-          // === Gemini جاب كود → نصنفه بنفس مسارات OCR (الجداول) ===
-          var geminiClassified = false;
-
-          // 1. Local DB lookup
-          var cleanedCode = ocrCleanup(geminiCode);
-          var localResult = searchInDB(cleanedCode);
-          if (localResult && localResult.storage && localResult.type) {
-            var company = localResult.company || detectCompanyLocal(cleanedCode);
-            showWinner({
-              code: cleanedCode, storage: localResult.storage, type: localResult.type,
-              company: company, ram: localResult.ram || null,
-              step: 'gemini_db', confidence: 90
-            }, 'Gemini+DB');
-            geminiClassified = true;
-          }
-
-          // 2. Server lookup (same as OCR path)
-          if (!geminiClassified) {
-            try {
-              var lookupRes = await fetch('/api/lookup', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ code: geminiCode, learnedCodes: cloudLearned, source: 'gemini' })
-              });
-              if (lookupRes.ok) {
-                var lookupData = await lookupRes.json();
-                if (lookupData.found && lookupData.storage && lookupData.type) {
-                  showWinner({
-                    code: lookupData.code || geminiCode, storage: lookupData.storage,
-                    type: lookupData.type, company: lookupData.company || '',
-                    ram: lookupData.ram || null, step: 'gemini_lookup', confidence: 88
-                  }, 'Gemini+Lookup');
-                  geminiClassified = true;
-                }
-              }
-            } catch(e) {
-              console.log('Gemini lookup فشل:', e.message);
-            }
-          }
-
-          // 3. لو الكود جديد مش في أي جدول → اعرضه كجزئي
-          if (!geminiClassified) {
-            showWinner({
-              code: geminiCode, storage: '', type: '',
-              company: detectCompanyLocal(geminiCode),
-              ram: null, step: 'gemini_partial', confidence: 50
-            }, 'Gemini');
+        if (!abortOCR.signal.aborted && !raceWon && lookupRes.ok) {
+          var lookupData = await lookupRes.json();
+          if (lookupData.found && lookupData.storage && lookupData.type) {
+            var result2 = {
+              code: lookupData.code || ocrText, storage: lookupData.storage,
+              type: lookupData.type, company: lookupData.company || '',
+              ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
+            };
+            fastResult = result2;
+            submitWinner(result2, 'FAST');
+            return result2;
           }
         }
-        // Gemini مشفش كود خالص
-        else {
-          addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-          showFail('❌ مش شايف كود ذاكرة');
+      }
+      return null;
+    } catch(e) {
+      if (e.name === 'AbortError') { console.log('Vision OCR ألغي'); return null; }
+      console.log('Vision OCR فشل:', e.message);
+      return null;
+    }
+  })();
+
+  // ═══════════════════════════════════════════════════════
+  // المسار 2: Gemini Vision (True RAG + Confidence)
+  // ═══════════════════════════════════════════════════════
+  var geminiPromise = (async function() {
+    try {
+      if (raceWon || abortGemini.signal.aborted) return null;
+      var geminiRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned }),
+        signal: abortGemini.signal
+      });
+      if (raceWon || abortGemini.signal.aborted) return null;
+      if (!geminiRes.ok) {
+        var errData = {};
+        try { errData = await geminiRes.json(); } catch(e){}
+        return { error: true, data: errData };
+      }
+      var parsed = await geminiRes.json();
+      if (!parsed.code) parsed = {code:'', storage:'', type:'', company:''};
+      // السيرفر بيرجع confidence جاهز
+      if (!parsed.confidence) {
+        parsed.confidence = (parsed.storage && parsed.type) ? 70 : 30;
+      }
+      
+      if (parsed.code && isValidCode(parsed.code)) {
+        geminiDone = true;
+        geminiResult = parsed;
+        
+        // لو FAST لسه معرضش → Gemini يعرض هو (fallback)
+        if (!raceWon && parsed.storage && parsed.type) {
+          console.log('🧠 Gemini يعرض (FAST ملحقش)');
+          submitWinner(parsed, 'Gemini');
+          return parsed;
         }
-      } catch(e) {
-        console.log('Gemini فشل:', e.message);
-        showFail('❌ خطأ في Gemini: ' + e.message);
+        
+        // لو FAST عرض خلاص → Gemini يتحقق في الخلف (Post-Validation)
+        if (raceWon && fastResult) {
+          if (parsed.storage && parsed.type && parsed.code !== fastResult.code) {
+            console.log('🔄 Post-Validation: Gemini يقول ' + parsed.code + ' مش ' + fastResult.code);
+            // تسجيل التصحيح للتعلم
+            addChatMsg('المساعد', '🔄 Gemini صحح: ' + parsed.code + ' - ' + parsed.storage + 'GB ' + parsed.type + ' (كان ' + fastResult.code + ')', 'bot');
+            // تحديث العرض بنتيجة Gemini الأدق
+            lastParsed = parsed;
+            currentCode = parsed.code;
+            var manualInput = document.getElementById('manualCode');
+            if (manualInput) manualInput.value = parsed.code;
+            displayResult(parsed.code, {
+              storage: parsed.storage, type: parsed.type,
+              ram: parsed.ram || null,
+              capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
+            }, parsed.company);
+            var txt = document.getElementById('statusText');
+            var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            if (txt) txt.textContent = '🔄 Gemini صحح (' + elapsed + 's)';
+          } else {
+            console.log('✅ Post-Validation: Gemini وافق على FAST');
+          }
+        }
+      }
+      return parsed;
+    } catch(e) {
+      if (e.name === 'AbortError') { console.log('Gemini ألغي - OCR كسب'); return null; }
+      console.log('Gemini فشل:', e.message);
+      return { error: true, data: { error: e.message, step: 'failed' } };
+    }
+  })();
+
+  // ═══════════════════════════════════════════════════════
+  // PARALLEL WAIT: الاتنين شغالين - FAST يكسب فوراً + Gemini يتحقق في الخلف
+  // ═══════════════════════════════════════════════════════
+  try {
+    // نستنى الاتنين يخلصوا - بس FAST ممكن يكسب في أي لحظة ويعرض فوراً
+    // Gemini بيكمل في الخلف للتحقق (Post-Validation)
+    await Promise.allSettled([ocrPromise, geminiPromise]);
+    
+    // لو محدش كسب لغاية دلوقتي → fallback
+    if (!raceWon) {
+      // لو Gemini جاب نتيجة كاملة → يكسب
+      if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code) && geminiResult.storage && geminiResult.type) {
+        console.log('🧠 Fallback: Gemini يكسب');
+        submitWinner(geminiResult, 'Gemini');
+      }
+      // لو Gemini جاب كود بس بدون تصنيف
+      else if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code)) {
+        console.log('🧠 Fallback: Gemini partial');
+        submitWinner(geminiResult, 'Gemini');
+      }
+      // لو Gemini فشل وفي error
+      else if (geminiResult && geminiResult.error) {
+        stopLEDAnimation();
+        lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
+        stopScanBar(false);
+        showLoading(false);
+        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
+        isAnalyzing = false;
+        unfreezeCamera();
+        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
+      }
+      // مفيش حاجة خالص
+      else {
+        stopLEDAnimation();
+        lightLED('failed');
+        stopScanBar(false);
+        showLoading(false);
+        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+        showError('❌ مش شايف كود ذاكرة');
+        isAnalyzing = false;
+        unfreezeCamera();
+        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
       }
     }
   } catch(e) {
-    showFail('⚠️ خطأ في الاتصال\n' + e.message);
+    if (!raceWon) {
+      stopLEDAnimation();
+      lightLED('failed');
+      stopScanBar(false);
+      showLoading(false);
+      showError('⚠️ خطأ في الاتصال\n' + e.message);
+      isAnalyzing = false;
+      unfreezeCamera();
+    }
   }
 }
 
@@ -1888,7 +1786,6 @@ function confirmResult() {
   if (!lastParsed || !currentCode) return;
   // حفظ في الكاش المحلي
   codeCache[currentCode.toUpperCase()] = { storage: lastParsed.storage, type: lastParsed.type, ram: lastParsed.ram || null, company: lastParsed.company };
-  saveCodeCache();
   // إرسال للسيرفر
   fetch('/api/confirm', {
     method: 'POST',
@@ -1926,7 +1823,6 @@ function submitCorrection() {
   
   // حفظ في الكاش المحلي بالقيمة الصح
   codeCache[currentCode.toUpperCase()] = { storage: storage, type: type, ram: ram || null, company: (lastParsed && lastParsed.company) || '' };
-  saveCodeCache();
   
   // إرسال للسيرفر
   fetch('/api/correct', {
@@ -1973,9 +1869,6 @@ function nextPhoto() {
   showError(false);
   document.getElementById('confirmActions').style.display = 'none';
   document.getElementById('correctionForm').style.display = 'none';
-  // إخفاء تفاصيل التحليل
-  var pipeCard = document.getElementById('pipelineCard');
-  if (pipeCard) pipeCard.style.display = 'none';
 
   document.getElementById('manualCode').value = '';
   isAnalyzing = false;
@@ -2123,8 +2016,6 @@ function handleNativeCapture(event) {
   reader.onload = function(e) {
     var base64Full = e.target.result;
     var imageData = base64Full.split(',')[1];
-    // الصورة الأصلية كاملة - نحفظها لإرسالها لـ Gemini
-    window._lastFullBase64 = imageData;
     analyzeImage(imageData, base64Full);
   };
   reader.readAsDataURL(file);
@@ -2476,8 +2367,6 @@ async function captureAndAnalyze() {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
-        // حفظ الصورة الكاملة قبل القص - لإرسالها لـ Gemini لو OCR فشل
-        window._lastFullBase64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
         var cropped = cropToFocusBox(canvas, img.width, img.height);
         var base64 = cropped.toDataURL('image/jpeg', 1.0);
         var imageData = base64.split(',')[1];
@@ -2493,8 +2382,6 @@ async function captureAndAnalyze() {
 
   // Fallback: Canvas
   ctx.drawImage(video, 0, 0, w, h);
-  // حفظ الصورة الكاملة قبل القص - لإرسالها لـ Gemini لو OCR فشل
-  window._lastFullBase64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
   var cropped = cropToFocusBox(canvas, w, h);
   var base64 = cropped.toDataURL('image/jpeg', 1.0);
   var imageData = base64.split(',')[1];
@@ -2775,8 +2662,6 @@ function uploadImage(event) {
   reader.onload = function(e) {
     var base64Full = e.target.result;
     var imageData = base64Full.split(',')[1];
-    // الصورة الأصلية كاملة - نحفظها لإرسالها لـ Gemini
-    window._lastFullBase64 = imageData;
     analyzeImage(imageData, base64Full);
   };
   reader.readAsDataURL(file);
