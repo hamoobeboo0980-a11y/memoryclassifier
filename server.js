@@ -519,6 +519,13 @@ function createSafeStore(source) {
     return store;
 }
 
+function hasStoreEntries(store) {
+    for (const _key in store) {
+        return true;
+    }
+    return false;
+}
+
 async function loadErrorMemory() {
     try {
         const res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ERRMEM_ID + '/latest', {
@@ -557,7 +564,7 @@ loadErrorMemory();
 
 // تصحيح كود باستخدام errorMemory
 function applyErrorMemoryFixes(code) {
-    if (!code || !Object.keys(errorMemory).length) return code;
+    if (!code || !hasStoreEntries(errorMemory)) return code;
     let fixed = code;
     for (const [wrong, right] of Object.entries(errorMemory)) {
         if (typeof right === 'string' && fixed.includes(wrong)) {
@@ -570,7 +577,7 @@ function applyErrorMemoryFixes(code) {
 
 // التحقق من أخطاء التصنيف السابقة - لو الكود ده اتصنف غلط قبل كده يتجنب نفس الغلطة
 function checkWrongClassification(code, proposedStorage) {
-    if (!code || !proposedStorage || !Object.keys(wrongClassifications).length) return null;
+    if (!code || !proposedStorage || !hasStoreEntries(wrongClassifications)) return null;
     const upper = code.toUpperCase().trim();
     const prefix = upper.substring(0, Math.min(10, upper.length));
     const entry = wrongClassifications[prefix] || wrongClassifications[upper];
