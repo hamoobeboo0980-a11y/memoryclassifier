@@ -2140,6 +2140,8 @@ ${buildExpertKnowledge()}
 
 ${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
+${buildExpertKnowledge()}
+
 مهم جداً:
 1. لما تصنف كود، قول عرفت منين (من الجدول / من الاختصار / من تصحيح المستخدم / من اختصار المدرب / تحليلي)
 2. لو المستخدم بيعلمك حاجة جديدة (قاعدة أو معلومة أو اختصار)، قوله "تم الحفظ ✅" وأكد إنك فهمت
