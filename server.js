@@ -723,15 +723,16 @@ UNIC: last line → 05G=32G|06G=64G|07G=128G
 Kingston eMMC (CHINA): LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
 ${expertKnowledge}
 Return JSON ONLY:
-{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
-If you can see a chip but can only read partial text (even 1-2 chars): {"code":"WHAT_YOU_SEE","storage":"","type":"","company":"","ram":null}
-If no memory chip found: {"code":"NOT_FOUND"}`;
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"which line/rule you used e.g. Samsung KM line3 letter X before 800=32G"}
+If you can see a chip but can only read partial text (even 1-2 chars): {"code":"WHAT_YOU_SEE","storage":"","type":"","company":"","ram":null,"reason":"what I can see on chip"}
+If no memory chip found: {"code":"NOT_FOUND","reason":"why"}`;
 
         let rawCode = '';
         let geminiStorage = '';
         let geminiType = '';
         let geminiCompany = '';
         let geminiRam = null;
+        let geminiReason = '';
 
         try {
             const geminiResult = await model.generateContent({
@@ -758,6 +759,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 geminiType = parsed.type || '';
                 geminiCompany = parsed.company || '';
                 geminiRam = parsed.ram || null;
+                geminiReason = parsed.reason || '';
             }
         } catch (geminiErr) {
             console.error('Gemini Single-Pass فشل:', geminiErr.message);
@@ -899,7 +901,8 @@ Return JSON only:
                 code: rawCode, storage: finalStorage, type: geminiType,
                 company: geminiCompany || detectCompany(rawCode),
                 ram: geminiRam || extractRam(rawCode),
-                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65
+                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65,
+                reason: geminiReason || ''
             };
             if (correctedStorage) {
                 geminiDirect.suggestion = 'Gemini قال ' + geminiStorage + ' بس اتصحح لـ ' + correctedStorage + ' من أخطاء سابقة';
@@ -1494,6 +1497,11 @@ function detectIntent(message) {
         return 'error_source';
     }
     
+    // نية: سؤال عن مصدر الإجابة (منين عرفت؟)
+    if (/منين عرفت|الاجابه دي منين|الاجابة دي منين|عرفت منين|ازاي عرفت|طلعت منين|جبت منين|المصدر|منين الكلام|من فين/i.test(arabic)) {
+        return 'explain_source';
+    }
+    
     // نية: عرض القواعد
     if (/القواعد|rules/i.test(arabic)) {
         return 'list_rules';
@@ -1891,6 +1899,68 @@ ${buildExpertKnowledge()}
             }
             
             return res.json({ reply, source: 'system', action: 'error_analysis' });
+        }
+
+        // ═══ نية: شرح مصدر الإجابة (منين عرفت) ═══
+        if (intent === 'explain_source') {
+            // خد آخر كود من السياق
+            const lastCode = context && context.code ? context.code : null;
+            if (!lastCode) {
+                return res.json({ reply: '❓ مفيش نتيجة سابقة أشرحلك منين جيتها.\nصور شريحة الأول أو ابعتلي كود أحلله.', source: 'system', action: 'no_context' });
+            }
+            
+            // دور على الكود في كل المصادر
+            const sourceResult = findCodeEverywhere(lastCode, learnedCodes);
+            
+            if (sourceResult) {
+                // شرح تفصيلي بناءً على المصدر
+                let explanation = '🔍 آخر كود: ' + lastCode + '\n\n';
+                const stepMap = {
+                    'cache': '📦 الكاش - النتيجة دي محفوظة من تحليل سابق',
+                    'correction': '🧠 تصحيح المدرب - أنت علمتني الكود ده قبل كده وصححتلي',
+                    'db': '📊 الجدول الأساسي - لقيته في قاعدة البيانات (NORMAL_DB أو EMMC_DB أو MICRON_DB)',
+                    'trained_shortcut': '🎯 اختصار المدرب - أنت علمتني اختصار بيبدأ بالحروف دي',
+                    'learned': '🧠 متعلم - دي حاجة اتعلمتها من تدريب سابق',
+                    'pattern': '🔄 نمط متعلم - لقيت نمط شبهه اتعلمته قبل كده'
+                };
+                explanation += '📌 المصدر: ' + (stepMap[sourceResult.source] || sourceResult.sourceText || 'تحليلي') + '\n';
+                explanation += '📋 النتيجة: ' + (sourceResult.storage || '?') + 'GB ' + (sourceResult.type || '?');
+                if (sourceResult.ram) explanation += ' | RAM ' + sourceResult.ram + 'GB';
+                if (sourceResult.company) explanation += ' | ' + sourceResult.company;
+                explanation += '\n\n';
+                
+                // شرح إضافي عن القاعدة المستخدمة
+                const company = (sourceResult.company || detectCompany(lastCode) || '').toLowerCase();
+                if (company.includes('samsung') && lastCode.startsWith('KM')) {
+                    explanation += '📖 القاعدة: Samsung KM (عادي) - السطر 3 - الحرف قبل 100/200/600/700/800/900\nN=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256';
+                } else if (company.includes('samsung') && (lastCode.startsWith('KLM') || lastCode.startsWith('KLU'))) {
+                    explanation += '📖 القاعدة: Samsung KLM/KLU (زجاجي) - السطر 3\nAG=16|BG=32|CG=64|DG=128|EG=256|FG=512';
+                } else if (company.includes('hynix') && lastCode.startsWith('H9')) {
+                    explanation += '📖 القاعدة: SK Hynix H9 (عادي) - السطر 2 - الرقم بعد أول 4 حروف\n17/18/19=16|26/27=32|52/53=64|16=128';
+                } else if (company.includes('hynix') && (lastCode.startsWith('H26') || lastCode.startsWith('H28') || lastCode.startsWith('HN8'))) {
+                    explanation += '📖 القاعدة: SK Hynix H26/H28/HN8 (زجاجي) - السطر 1\n54=16|64=32|74=64|88=128|9=256';
+                } else if (company.includes('toshiba') || lastCode.startsWith('THG')) {
+                    explanation += '📖 القاعدة: Toshiba THG (زجاجي) - السطر 3\nG7=16|G8=32|G9=64|T0=128|T1=256|T2=512';
+                } else if (lastCode.startsWith('YMEC') || lastCode.startsWith('TY')) {
+                    explanation += '📖 القاعدة: YMEC (زجاجي) - أسفل يسار\n6=32|7=64|8=128|9=256';
+                } else if (lastCode.includes('UNIC') || lastCode.includes('EMCP')) {
+                    explanation += '📖 القاعدة: UNIC (زجاجي) - آخر سطر\n05G=32|06G=64|07G=128';
+                } else if (company.includes('micron') || lastCode.startsWith('JW') || lastCode.startsWith('JZ')) {
+                    explanation += '📖 القاعدة: Micron JW/JZ (زجاجي) - الكود كامل من الجدول';
+                } else if (company.includes('sandisk') || lastCode.startsWith('SDIN')) {
+                    explanation += '📖 القاعدة: SanDisk SDIN - المساحة مكتوبة صريحة في الكود';
+                }
+                
+                explanation += '\n\nلو النتيجة غلط، قولي الصح وأنا هتعلم! 🎓';
+                return res.json({ reply: explanation, source: 'system', action: 'explain_source' });
+            } else {
+                // الكود مش موجود في أي مصدر محلي - يبقى Gemini هو اللي صنفه
+                let explanation = '🔍 آخر كود: ' + lastCode + '\n\n';
+                explanation += '📌 المصدر: 🤖 Gemini AI - مالقتوش في الجداول ولا الاختصارات، فـ Gemini حلله بالذكاء الاصطناعي';
+                if (context.storage) explanation += '\n📋 النتيجة: ' + context.storage + 'GB ' + (context.type || '?');
+                explanation += '\n\n⚠️ تصنيف Gemini بيكون أقل دقة من الجداول. لو غلط قولي الصح!';
+                return res.json({ reply: explanation, source: 'system', action: 'explain_source' });
+            }
         }
 
         // ═══ نية: عرض القواعد ═══

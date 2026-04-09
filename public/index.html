@@ -1315,7 +1315,23 @@ async function analyzeImage(base64, previewSrc) {
       if (dot) { dot.style.background = confColor; dot.style.boxShadow = '0 0 10px ' + confColor; }
       if (txt) txt.textContent = '✅ ' + source + ' (' + elapsed + 's) [' + conf + '%]';
       var sourceInfo = parsed.suggestion ? ' (تصحيح: ' + parsed.suggestion + ')' : '';
-      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + ' [' + source + ' ' + elapsed + 's 🎯' + conf + '%] - صح ولا غلط؟', 'bot');
+      // شرح المصدر بالعربي
+      var stepNames = {
+        'db_exact': '📊 من الجدول',
+        'db_errorfix': '🔧 تصحيح + جدول',
+        'db_fuzzy': '🔍 أقرب كود في الجدول',
+        'vision_db': '👁️ OCR + جدول',
+        'vision_lookup': '👁️ OCR + بحث',
+        'rag_selector': '🎯 RAG اختيار ذكي',
+        'gemini_direct': '🤖 تصنيف Gemini',
+        'trained_shortcut': '🎯 اختصار المدرب',
+        'correction': '🧠 تصحيح سابق',
+        'learned': '🧠 متعلم',
+        'pattern': '🔄 نمط متعلم',
+        'cache': '📦 كاش'
+      };
+      var stepLabel = (parsed.step && stepNames[parsed.step]) ? stepNames[parsed.step] : source;
+      addChatMsg('المساعد', '✅ ' + detectedCode + ' - ' + parsed.storage + 'GB ' + parsed.type + sourceInfo + '\n📌 المصدر: ' + stepLabel + ' [' + elapsed + 's 🎯' + conf + '%]\nصح ولا غلط؟ (قول "منين عرفت" لو عايز تفاصيل)', 'bot');
     } else {
       stopScanBar(false);
       updateStats(parsed.company, false);
