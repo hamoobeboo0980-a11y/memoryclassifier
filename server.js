@@ -690,6 +690,7 @@ app.post('/api/analyze', async (req, res) => {
         // ═══════════════════════════════════════════════════════
         // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
         // ═══════════════════════════════════════════════════════
+        const expertKnowledge = buildExpertKnowledge();
         const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
 
 STEP 1 - READ: Find the memory chip (large black chip) and read its code.
@@ -709,7 +710,7 @@ Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
 YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
 UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
 Micron JW/JZ (زجاجي)
-
+${expertKnowledge}
 Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
 If no memory chip found: {"code":"NOT_FOUND"}`;
@@ -1017,11 +1018,17 @@ function lookupCodeStrict(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات
+    // 2. الجداول والاختصارات المبرمجة
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         dbResult.step = 'db';
         return dbResult;
+    }
+    
+    // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
+    const shortcutResult = searchTrainedShortcuts(cleanCode);
+    if (shortcutResult) {
+        return shortcutResult;
     }
     
     // 3. الأكواد المتعلمة - مطابقة دقيقة
@@ -1105,12 +1112,19 @@ function lookupCode(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات
+    // 2. الجداول والاختصارات المبرمجة
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
         dbResult.step = 'db';
         return dbResult;
+    }
+    
+    // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
+    const shortcutResult = searchTrainedShortcuts(cleanCode);
+    if (shortcutResult) {
+        console.log('🎯 لقيته في اختصارات المدرب:', shortcutResult.suggestion);
+        return shortcutResult;
     }
     
     // 3. الأكواد المتعلمة - مطابقة دقيقة
@@ -1391,6 +1405,11 @@ function detectIntent(message) {
     const lower = message.toLowerCase().trim();
     const arabic = message.trim();
     
+    // نية: تأكيد PIN (أرقام فقط - 4 أرقام)
+    if (/^\d{4}$/.test(arabic.trim())) {
+        return 'pin_confirm';
+    }
+    
     // نية: عرض المحفوظات
     if (/(وري|عرض|شوف|ايه ال|كام|عدد).*(محفوظ|متعلم|اتعلم|حفظ|كاش|cache|learned|saved)/i.test(arabic) ||
         /^(المحفوظات|المتعلمات|الكاش|ورّيني|وريني)$/i.test(arabic.replace(/\s+/g,''))) {
@@ -1403,8 +1422,32 @@ function detectIntent(message) {
         return 'delete';
     }
     
+    // نية: مسح كل الأنماط/الكاش
+    if (/(امسح|شيل|احذف|فضّي|نظّف|clear).*(كل|الكل|جميع|كلها|all|everything|الأنماط|الكاش|patterns)/i.test(arabic)) {
+        return 'clear_patterns';
+    }
+    
+    // نية: تعليم اختصار
+    if (/(الاختصار|shortcut|اختصار).*(يعني|يبقى|معناه|=)/i.test(arabic) ||
+        /^(علّم|علم|ضيف|أضف|add)\s*(اختصار|shortcut)/i.test(arabic)) {
+        return 'teach_shortcut';
+    }
+    
+    // نية: عرض الاختصارات
+    if (/(وري|عرض|شوف).*(اختصار|shortcuts)/i.test(arabic) ||
+        /^(الاختصارات|shortcuts)$/i.test(arabic.replace(/\s+/g,''))) {
+        return 'list_shortcuts';
+    }
+    
+    // نية: تحليل صورة (عين Gemini)
+    if (/(حلل|شوف|بص|اقرأ|اقرا).*(صور|شريح|image|photo)/i.test(arabic) ||
+        /^(شوف|بص|حلل)\s*(الصور|دي|ده|كده)$/i.test(arabic) ||
+        /وريه الصور/i.test(arabic)) {
+        return 'analyze_image';
+    }
+    
     // نية: تعليم قاعدة
-    if (/(لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة|الاختصار.*يعني|يعني.*اختصار)/i.test(arabic)) {
+    if (/(لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة)/i.test(arabic)) {
         return 'teach_rule';
     }
     
@@ -1455,6 +1498,12 @@ function findCodeEverywhere(code, learnedCodes) {
         return { ...dbResult, source: 'db', sourceText: '📊 من الجدول - لقيته في قاعدة البيانات' };
     }
     
+    // 3.5 اختصارات المدرب
+    const shortcutResult = searchTrainedShortcuts(code);
+    if (shortcutResult) {
+        return { ...shortcutResult, source: 'trained_shortcut', sourceText: '🎯 من اختصار المدرب - ' + shortcutResult.suggestion };
+    }
+    
     // 4. الأكواد المتعلمة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1491,11 +1540,60 @@ function findCodeEverywhere(code, learnedCodes) {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, context, history, learnedCodes } = req.body;
+        const { message, context, history, learnedCodes, lastImage } = req.body;
         if (!message) return res.status(400).json({ error: "No message" });
 
         const intent = detectIntent(message);
         console.log('💬 شات - نية:', intent, '- رسالة:', message.substring(0, 80));
+
+        // ═══ نية: تأكيد PIN (للحذف المحمي) ═══
+        if (intent === 'pin_confirm') {
+            const pin = message.trim();
+            // دور على أي pending delete لنفس الجلسة
+            const pendingKeys = Object.keys(pendingDeletes);
+            if (pendingKeys.length === 0) {
+                return res.json({ reply: '❓ مفيش عملية حذف منتظرة PIN', source: 'system', action: 'no_pending' });
+            }
+            const lastPending = pendingKeys[pendingKeys.length - 1];
+            const pending = pendingDeletes[lastPending];
+            if (pin === TRAINER_PIN) {
+                // PIN صح - نفذ الحذف
+                let deleted = false;
+                let deletedFrom = [];
+                const codeToDelete = pending.code;
+                if (pending.action === 'delete_code') {
+                    if (resultCache[codeToDelete]) {
+                        delete resultCache[codeToDelete];
+                        saveCache();
+                        deleted = true;
+                        deletedFrom.push('الكاش');
+                    }
+                    const prefix = codeToDelete.substring(0, Math.min(10, codeToDelete.length));
+                    if (learnedPatterns[prefix]) {
+                        delete learnedPatterns[prefix];
+                        savePatternsToCloud();
+                        deleted = true;
+                        deletedFrom.push('الأنماط المتعلمة');
+                    }
+                } else if (pending.action === 'clear_all') {
+                    // مسح كل الأنماط
+                    const patCount = Object.keys(learnedPatterns).length;
+                    Object.keys(learnedPatterns).forEach(k => delete learnedPatterns[k]);
+                    savePatternsToCloud();
+                    deleted = true;
+                    deletedFrom.push('كل الأنماط (' + patCount + ')');
+                }
+                delete pendingDeletes[lastPending];
+                if (deleted) {
+                    return res.json({ reply: '🔓✅ PIN صح - تم مسح ' + (pending.code || 'الأنماط') + ' من: ' + deletedFrom.join(' + '), source: 'system', action: 'deleted', deletedCode: pending.code });
+                } else {
+                    return res.json({ reply: '❓ ' + (pending.code || '') + ' مش موجود', source: 'system', action: 'not_found' });
+                }
+            } else {
+                delete pendingDeletes[lastPending];
+                return res.json({ reply: '🔒❌ PIN غلط - العملية اترفضت', source: 'system', action: 'pin_rejected' });
+            }
+        }
 
         // ═══ نية: عرض المحفوظات ═══
         if (intent === 'list') {
@@ -1503,12 +1601,14 @@ app.post('/api/chat', async (req, res) => {
             const patternCount = Object.keys(learnedPatterns).length;
             const learnedCount = (learnedCodes && learnedCodes.length) || 0;
             const rulesCount = customRules.length;
+            const shortcutsCount = trainedShortcuts.length;
             
             let reply = '📋 المحفوظات عندي:\n\n';
             reply += '📦 كاش النتائج: ' + cacheCount + ' كود\n';
             reply += '🧠 أكواد متعلمة (من التدريب): ' + learnedCount + ' كود\n';
             reply += '🔄 أنماط متعلمة (من التصويت): ' + patternCount + ' نمط\n';
-            reply += '📚 قواعد مخصصة: ' + rulesCount + ' قاعدة\n\n';
+            reply += '📚 قواعد مخصصة: ' + rulesCount + ' قاعدة\n';
+            reply += '🎯 اختصارات المدرب: ' + shortcutsCount + ' اختصار\n\n';
             
             // عرض آخر 10 أكواد من الكاش
             const cacheKeys = Object.keys(resultCache).slice(-10);
@@ -1531,7 +1631,7 @@ app.post('/api/chat', async (req, res) => {
             return res.json({ reply, source: 'system', action: 'list' });
         }
 
-        // ═══ نية: مسح كود ═══
+        // ═══ نية: مسح كود (محمي بـ PIN) ═══
         if (intent === 'delete') {
             // استخراج الكود من الرسالة
             const words = message.trim().split(/\s+/);
@@ -1550,33 +1650,122 @@ app.post('/api/chat', async (req, res) => {
                 return res.json({ reply: '❓ قولي الكود الي عايز تمسحه - مثلاً: "امسح الكود KVR16N11"', source: 'system', action: 'delete_ask' });
             }
             
-            let deleted = false;
-            let deletedFrom = [];
+            // حفظ العملية المعلقة وطلب PIN
+            const pendingKey = 'del_' + Date.now();
+            pendingDeletes[pendingKey] = { code: codeToDelete, action: 'delete_code', time: Date.now() };
+            return res.json({
+                reply: '🔒 عملية حذف ' + codeToDelete + '\n⚠️ اكتب PIN المدرب (4 أرقام) للتأكيد:',
+                source: 'system', action: 'pin_required'
+            });
+        }
+
+        // ═══ نية: مسح كل الأنماط (محمي بـ PIN) ═══
+        if (intent === 'clear_patterns') {
+            const pendingKey = 'clear_' + Date.now();
+            pendingDeletes[pendingKey] = { code: null, action: 'clear_all', time: Date.now() };
+            return res.json({
+                reply: '🔒 عملية مسح كل الأنماط المتعلمة (' + Object.keys(learnedPatterns).length + ' نمط)\n⚠️ اكتب PIN المدرب (4 أرقام) للتأكيد:',
+                source: 'system', action: 'pin_required'
+            });
+        }
+
+        // ═══ نية: تعليم اختصار جديد ═══
+        if (intent === 'teach_shortcut') {
+            // استخراج: "الاختصار KM5H يعني 64 سامسونج عادي"
+            const codeMatch = message.match(/([A-Z0-9]{2,})/i);
+            const sizeMatch = message.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
             
-            // مسح من الكاش
-            if (resultCache[codeToDelete]) {
-                delete resultCache[codeToDelete];
-                saveCache();
-                deleted = true;
-                deletedFrom.push('الكاش');
-            }
-            
-            // مسح من الأنماط المتعلمة
-            const prefix = codeToDelete.substring(0, Math.min(10, codeToDelete.length));
-            if (learnedPatterns[prefix]) {
-                delete learnedPatterns[prefix];
-                savePatternsToCloud();
-                deleted = true;
-                deletedFrom.push('الأنماط المتعلمة');
-            }
-            
-            if (deleted) {
+            if (!codeMatch || !sizeMatch) {
                 return res.json({
-                    reply: '🗑️ تم مسح ' + codeToDelete + ' من: ' + deletedFrom.join(' + ') + '\n✅ تم الحفظ على السحابة',
-                    source: 'system', action: 'deleted', deletedCode: codeToDelete
+                    reply: '❓ مفهمتش الاختصار - قولي بالشكل ده:\n"الاختصار KM5H يعني 64 سامسونج عادي"\nأو: "اختصار JZ1 يبقى 128 زجاجي"',
+                    source: 'system', action: 'teach_shortcut_ask'
+                });
+            }
+            
+            const isGlass = /زجاجي|glass|emmc|ufs/i.test(message);
+            const companyMatch = message.match(/(سامسونج|samsung|هاينكس|hynix|توشيبا|toshiba|سانديسك|sandisk|ميكرون|micron|ymec|unic)/i);
+            let company = '';
+            if (companyMatch) {
+                const c = companyMatch[1].toLowerCase();
+                if (c.includes('سامسونج') || c.includes('samsung')) company = 'Samsung';
+                else if (c.includes('هاينكس') || c.includes('hynix')) company = 'SK Hynix';
+                else if (c.includes('توشيبا') || c.includes('toshiba')) company = 'Toshiba';
+                else if (c.includes('سانديسك') || c.includes('sandisk')) company = 'SanDisk';
+                else if (c.includes('ميكرون') || c.includes('micron')) company = 'Micron';
+                else company = companyMatch[1];
+            }
+            
+            // استخراج الرام لو موجود
+            const ramMatch = message.match(/ram\s*[:=]?\s*(\d+)/i) || message.match(/رام\s*[:=]?\s*(\d+)/i);
+            
+            const success = addTrainedShortcut({
+                prefix: codeMatch[1].toUpperCase(),
+                storage: sizeMatch[1],
+                type: isGlass ? 'زجاجي' : 'عادي',
+                company: company,
+                ram: ramMatch ? ramMatch[1] : null,
+                note: message.trim().substring(0, 100)
+            });
+            
+            if (success) {
+                return res.json({
+                    reply: '🎯 تم حفظ الاختصار! ✅\n' + codeMatch[1].toUpperCase() + ' → ' + sizeMatch[1] + 'GB ' + (isGlass ? 'زجاجي' : 'عادي') + (company ? ' ' + company : '') + '\n\n✅ تم الحفظ على السحابة\nعدد الاختصارات: ' + trainedShortcuts.length,
+                    source: 'system', action: 'shortcut_saved'
                 });
             } else {
-                return res.json({ reply: '❓ الكود ' + codeToDelete + ' مش موجود في الكاش أو الأنماط المتعلمة.\nلو عايز تمسحه من الأكواد المتعلمة، امسحه من الواجهة.', source: 'system', action: 'not_found' });
+                return res.json({ reply: '❌ مقدرتش أحفظ - تأكد إن الكود أكبر من حرفين والمساحة رقم', source: 'system', action: 'error' });
+            }
+        }
+
+        // ═══ نية: عرض الاختصارات ═══
+        if (intent === 'list_shortcuts') {
+            if (trainedShortcuts.length === 0) {
+                return res.json({
+                    reply: '🎯 مفيش اختصارات مُدرَّبة لحد دلوقتي.\nعلمني اختصار جديد - مثلاً: "الاختصار KM5H يعني 64 سامسونج عادي"',
+                    source: 'system', action: 'list_shortcuts'
+                });
+            }
+            let reply = '🎯 اختصارات المدرب (' + trainedShortcuts.length + ' اختصار):\n\n';
+            trainedShortcuts.forEach((s, i) => {
+                reply += (i + 1) + '. ' + s.prefix + ' → ' + s.storage + 'GB ' + s.type + (s.company ? ' (' + s.company + ')' : '') + (s.ram ? ' RAM:' + s.ram : '') + '\n';
+            });
+            return res.json({ reply, source: 'system', action: 'list_shortcuts' });
+        }
+
+        // ═══ نية: تحليل صورة (عين Gemini) ═══
+        if (intent === 'analyze_image') {
+            if (!lastImage) {
+                return res.json({
+                    reply: '📷 مفيش صورة متاحة دلوقتي.\nصوّر الشريحة الأول وبعدين قولي "شوف الصورة" أو "حلل الصورة دي"',
+                    source: 'system', action: 'no_image'
+                });
+            }
+            // ابعت الصورة لـ Gemini للتحليل
+            try {
+                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const imagePrompt = `أنت خبير في شرائح الذاكرة (Memory IC chips). بتتكلم مصري.
+هذه صورة شريحة ذاكرة على بورد موبايل. 
+1. اقرأ كود الشريحة (الشريحة السوداء الكبيرة)
+2. حلل الكود وقولي: الشركة، المساحة، النوع (عادي BGA / زجاجي EMMC)، الرام لو ممكن
+3. لو مش واضحة قولي إيه الي شايفه وأقرب تخمين
+
+${buildExpertKnowledge()}
+
+رد بالمصري بوضوح.`;
+                
+                const rawBase64 = lastImage.includes(',') ? lastImage.split(',')[1] : lastImage;
+                const imgResult = await model.generateContent({
+                    contents: [{ parts: [
+                        { inlineData: { data: rawBase64, mimeType: 'image/jpeg' } },
+                        { text: imagePrompt }
+                    ]}],
+                    generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
+                });
+                const imgReply = imgResult.response.text().trim();
+                return res.json({ reply: '👁️ شايف الصورة:\n\n' + imgReply, source: 'gemini_vision', action: 'image_analyzed' });
+            } catch (imgErr) {
+                console.error('عين Gemini فشلت:', imgErr.message);
+                return res.json({ reply: '⚠️ مقدرتش أحلل الصورة - ' + imgErr.message.substring(0, 60), source: 'error', action: 'error' });
             }
         }
 
@@ -1720,6 +1909,15 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // اختصارات المدرب
+        let shortcutsInfo = '';
+        if (trainedShortcuts.length > 0) {
+            shortcutsInfo = '\n🎯 اختصارات المدرب (' + trainedShortcuts.length + ' اختصار):\n';
+            trainedShortcuts.slice(0, 20).forEach(s => {
+                shortcutsInfo += '- ' + s.prefix + ' → ' + s.storage + 'GB ' + s.type + (s.company ? ' ' + s.company : '') + '\n';
+            });
+        }
+
         let historyText = '';
         if (history && history.length > 0) {
             historyText = '\nتاريخ المحادثة:\n';
@@ -1730,6 +1928,7 @@ app.post('/api/chat', async (req, res) => {
 
         const chatPrompt = `أنت مساعد ذكي متخصص في شرائح الذاكرة (Memory IC chips) للهواتف.
 اسمك "مساعد البحراوي" وبتتكلم مصري.
+المدرب (الخبير) بيعلمك وأنت بتحفظ كل حاجة. أنت نسخة منه - بتتعلم منه وبتطبق اللي علمهولك.
 
 معلومات عنك:
 - بتساعد في تصنيف شرائح الذاكرة (عادي BGA / زجاجي EMMC)
@@ -1737,13 +1936,14 @@ app.post('/api/chat', async (req, res) => {
 - العادي = BGA (بيتلحم على البورد)
 - الزجاجي = EMMC (بيتركب في سوكيت)
 
-${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}
+${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
 مهم جداً:
-1. لما تصنف كود، قول عرفت منين (من الجدول / من الاختصار / من تصحيح المستخدم / تحليلي)
-2. لو المستخدم بيعلمك حاجة جديدة (قاعدة أو معلومة)، قوله "تم الحفظ ✅" وأكد إنك فهمت
+1. لما تصنف كود، قول عرفت منين (من الجدول / من الاختصار / من تصحيح المستخدم / من اختصار المدرب / تحليلي)
+2. لو المستخدم بيعلمك حاجة جديدة (قاعدة أو معلومة أو اختصار)، قوله "تم الحفظ ✅" وأكد إنك فهمت
 3. لو المستخدم بيسأل عن كود مش عارفه، قوله بصراحة وساعده
-4. طبّق القواعد المخصصة دايماً
+4. طبّق القواعد المخصصة واختصارات المدرب دايماً - دي أعلى أولوية
+5. لو المدرب بيعلمك اختصار جديد، رد بـ [SHORTCUT]{"prefix":"الحروف","storage":"المساحة","type":"عادي أو زجاجي","company":"الشركة"}[/SHORTCUT]
 
 لو المستخدم بيعلمك معلومة جديدة عن كود أو قاعدة، رد بـ JSON في آخر ردك بالشكل ده:
 [TRAIN]{"code":"الكود","storage":"المساحة","type":"عادي أو زجاجي"}[/TRAIN]
@@ -1753,11 +1953,19 @@ ${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}
 ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || 'مفيش') + '\n- آخر نتيجة: ' + (context.storage || '?') + 'GB ' + (context.type || '?') + '\n- الشركة: ' + (context.company || '?') : ''}${historyText}
 
 رسالة المستخدم: "${message}"
+${lastImage ? '\n📷 المستخدم بعتلك صورة كمان - لو سألك عنها حللها' : ''}
 
 رد بإيجاز ووضوح بالمصري. لو سأل عن حاجة مش ليها علاقة بالذاكرة، رد عليه بلطف وارجعه للموضوع.`;
 
+        // بناء الـ parts: نص + صورة لو موجودة
+        const parts = [{ text: chatPrompt }];
+        if (lastImage) {
+            const rawBase64 = lastImage.includes(',') ? lastImage.split(',')[1] : lastImage;
+            parts.unshift({ inlineData: { data: rawBase64, mimeType: 'image/jpeg' } });
+        }
+
         const result = await model.generateContent({
-            contents: [{ parts: [{ text: chatPrompt }] }],
+            contents: [{ parts }],
             generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
         });
 
@@ -1799,6 +2007,23 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
             reply = reply.replace(/\[RULE\].*?\[\/RULE\]/s, '').trim();
             if (!reply.includes('تم الحفظ') && !reply.includes('✅')) {
                 reply += '\n\n📚 تم حفظ القاعدة على السحابة ✅';
+            }
+        }
+
+        // استخراج اختصارات من رد Gemini
+        const shortcutMatch = reply.match(/\[SHORTCUT\](.*?)\[\/SHORTCUT\]/s);
+        if (shortcutMatch) {
+            try {
+                const scData = JSON.parse(shortcutMatch[1]);
+                if (scData.prefix && scData.storage) {
+                    addTrainedShortcut(scData);
+                    action = 'shortcut_saved';
+                    console.log('🎯 شات: اختصار جديد -', scData.prefix, '=', scData.storage + 'GB');
+                }
+            } catch (e) { /* تجاهل */ }
+            reply = reply.replace(/\[SHORTCUT\].*?\[\/SHORTCUT\]/s, '').trim();
+            if (!reply.includes('تم الحفظ') && !reply.includes('✅')) {
+                reply += '\n\n🎯 تم حفظ الاختصار على السحابة ✅';
             }
         }
 
