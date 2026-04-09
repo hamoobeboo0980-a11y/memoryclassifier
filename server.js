@@ -511,6 +511,14 @@ let wrongClassifications = Object.create(null);
 // الشكل: { "KMXX": { wrongStorage: "64", correctStorage: "32", count: 2 } }
 // يسجل أخطاء التصنيف المتكررة عشان نتجنبها
 
+function createSafeStore(source) {
+    const store = Object.create(null);
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
+        Object.assign(store, source);
+    }
+    return store;
+}
+
 async function loadErrorMemory() {
     try {
         const res = await fetch('https://api.jsonbin.io/v3/b/' + JBIN_ERRMEM_ID + '/latest', {
@@ -518,18 +526,15 @@ async function loadErrorMemory() {
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
-        const loadedMemory = (data.record && data.record.memory) ? data.record.memory : {};
-        const loadedWrong = (data.record && data.record.wrongClassifications) ? data.record.wrongClassifications : {};
-        // نسخ البيانات لـ null-prototype objects لمنع prototype pollution
-        errorMemory = Object.create(null);
-        Object.assign(errorMemory, loadedMemory);
-        wrongClassifications = Object.create(null);
-        Object.assign(wrongClassifications, loadedWrong);
+        const loadedMemory = data.record && data.record.memory;
+        const loadedWrong = data.record && data.record.wrongClassifications;
+        errorMemory = createSafeStore(loadedMemory);
+        wrongClassifications = createSafeStore(loadedWrong);
         console.log('🧠 تم تحميل ذاكرة الأخطاء:', Object.keys(errorMemory).length, 'نمط OCR +', Object.keys(wrongClassifications).length, 'خطأ تصنيف');
     } catch (e) {
         console.log('ذاكرة أخطاء: بدأنا من الصفر -', e.message);
-        errorMemory = Object.create(null);
-        wrongClassifications = Object.create(null);
+        errorMemory = createSafeStore();
+        wrongClassifications = createSafeStore();
     }
 }
 
@@ -552,7 +557,7 @@ loadErrorMemory();
 
 // تصحيح كود باستخدام errorMemory
 function applyErrorMemoryFixes(code) {
-    if (!code || Object.keys(errorMemory).length === 0) return code;
+    if (!code || !Object.keys(errorMemory).length) return code;
     let fixed = code;
     for (const [wrong, right] of Object.entries(errorMemory)) {
         if (typeof right === 'string' && fixed.includes(wrong)) {
@@ -565,7 +570,7 @@ function applyErrorMemoryFixes(code) {
 
 // التحقق من أخطاء التصنيف السابقة - لو الكود ده اتصنف غلط قبل كده يتجنب نفس الغلطة
 function checkWrongClassification(code, proposedStorage) {
-    if (!code || !proposedStorage || Object.keys(wrongClassifications).length === 0) return null;
+    if (!code || !proposedStorage || !Object.keys(wrongClassifications).length) return null;
     const upper = code.toUpperCase().trim();
     const prefix = upper.substring(0, Math.min(10, upper.length));
     const entry = wrongClassifications[prefix] || wrongClassifications[upper];
