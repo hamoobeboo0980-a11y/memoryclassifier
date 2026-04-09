@@ -1252,9 +1252,21 @@ app.get('/api/cache-count', (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // قواعد مخصصة يعلمها المستخدم للنظام
-const JBIN_RULES_ID = '69c71c29c3097a1dd56a4604'; // bin خاص بالقواعد المخصصة
+const JBIN_RULES_ID = '69c71c29c3097a1dd56a4604'; // bin خاص بالقواعد المخصصة + الاختصارات المُدرَّبة
 let customRules = [];
 // الشكل: [{ rule: "لما تلاقي N11 في كود Kingston يبقى DDR3", addedAt: "2024-..." }]
+
+// ═══════════════════════════════════════════════════════════════
+// نظام الاختصارات المُدرَّبة (Trained Shortcuts) - مسار 2 للدقة
+// يتعلم من المدرب عبر الشات ويُستخدم في التصنيف الفعلي
+// ═══════════════════════════════════════════════════════════════
+let trainedShortcuts = [];
+// الشكل: [{ prefix: "KM5H", company: "Samsung", storage: "64", type: "عادي", ram: "4", note: "...", trainedBy: "trainer", date: "..." }]
+
+// حماية البيانات - PIN المدرب
+const TRAINER_PIN = process.env.TRAINER_PIN || '1234';
+// pending delete operations awaiting PIN confirmation
+let pendingDeletes = Object.create(null);
 
 async function loadRulesFromCloud() {
     try {
@@ -1264,10 +1276,12 @@ async function loadRulesFromCloud() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         customRules = (data.record && data.record.rules) ? data.record.rules : [];
-        console.log('📚 تم تحميل القواعد المخصصة:', customRules.length, 'قاعدة');
+        trainedShortcuts = (data.record && data.record.shortcuts) ? data.record.shortcuts : [];
+        console.log('📚 تم تحميل القواعد المخصصة:', customRules.length, 'قاعدة +', trainedShortcuts.length, 'اختصار مُدرَّب');
     } catch (e) {
         console.log('قواعد مخصصة: بدأنا من الصفر -', e.message);
         customRules = [];
+        trainedShortcuts = [];
     }
 }
 
@@ -1277,13 +1291,97 @@ function saveRulesToCloud() {
             await fetch('https://api.jsonbin.io/v3/b/' + JBIN_RULES_ID, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'X-Master-Key': JBIN_MASTER },
-                body: JSON.stringify({ rules: customRules })
+                body: JSON.stringify({ rules: customRules, shortcuts: trainedShortcuts })
             });
-            console.log('📚 تم حفظ القواعد المخصصة:', customRules.length);
+            console.log('📚 تم حفظ القواعد:', customRules.length, '+ اختصارات:', trainedShortcuts.length);
         } catch (e) {
             console.error('خطأ حفظ القواعد:', e.message);
         }
     }, 2000);
+}
+
+// إضافة اختصار مُدرَّب جديد
+function addTrainedShortcut(data) {
+    if (!data.prefix || data.prefix.length < 2 || !data.storage) return false;
+    const upper = data.prefix.toUpperCase().trim();
+    // تحديث لو موجود بالفعل (نفس prefix)
+    const existIdx = trainedShortcuts.findIndex(s => s.prefix.toUpperCase() === upper);
+    const entry = {
+        prefix: upper,
+        company: data.company || detectCompany(upper) || 'Unknown',
+        storage: String(data.storage),
+        type: data.type || 'عادي',
+        ram: data.ram || null,
+        note: data.note || '',
+        trainedBy: 'trainer',
+        date: new Date().toISOString()
+    };
+    if (existIdx >= 0) {
+        trainedShortcuts[existIdx] = entry;
+        console.log('🎯 تحديث اختصار مُدرَّب:', upper, '→', entry.storage + 'GB', entry.type);
+    } else {
+        trainedShortcuts.push(entry);
+        console.log('🎯 اختصار مُدرَّب جديد:', upper, '→', entry.storage + 'GB', entry.type);
+    }
+    saveRulesToCloud();
+    return true;
+}
+
+// البحث في الاختصارات المُدرَّبة (أطول prefix match يكسب)
+function searchTrainedShortcuts(code) {
+    if (!code || code.length < 2 || trainedShortcuts.length === 0) return null;
+    const upper = code.toUpperCase().trim();
+    let bestMatch = null;
+    let bestLen = 0;
+    for (const shortcut of trainedShortcuts) {
+        const prefix = shortcut.prefix.toUpperCase();
+        if (upper.startsWith(prefix) && prefix.length > bestLen) {
+            bestMatch = shortcut;
+            bestLen = prefix.length;
+        }
+    }
+    if (bestMatch) {
+        return {
+            code: upper,
+            storage: bestMatch.storage,
+            type: bestMatch.type,
+            company: bestMatch.company || detectCompany(upper),
+            ram: bestMatch.ram || extractRam(upper),
+            step: 'trained_shortcut',
+            confidence: 90,
+            suggestion: 'من اختصار المدرب: ' + bestMatch.prefix + '→' + bestMatch.storage + 'GB'
+        };
+    }
+    return null;
+}
+
+// بناء ملخص الخبرة المتراكمة (للاستخدام في prompts)
+function buildExpertKnowledge() {
+    let knowledge = '';
+    // اختصارات مُدرَّبة (أول 20)
+    if (trainedShortcuts.length > 0) {
+        knowledge += '\nAdditional trained shortcuts from expert:\n';
+        trainedShortcuts.slice(0, 20).forEach(s => {
+            knowledge += '- ' + s.prefix + '... → ' + s.storage + 'GB ' + s.company + ' ' + s.type + (s.ram ? ' RAM:' + s.ram : '') + '\n';
+        });
+    }
+    // قواعد مخصصة (أول 10)
+    if (customRules.length > 0) {
+        knowledge += '\nCustom rules from trainer (ALWAYS apply):\n';
+        customRules.slice(0, 10).forEach(r => {
+            knowledge += '- ' + r.rule + '\n';
+        });
+    }
+    // تحذيرات أخطاء التصنيف (أول 10)
+    const wrongKeys = Object.keys(wrongClassifications);
+    if (wrongKeys.length > 0) {
+        knowledge += '\nWARNING - Known classification mistakes (AVOID repeating):\n';
+        wrongKeys.slice(0, 10).forEach(k => {
+            const w = wrongClassifications[k];
+            knowledge += '- ' + k + ': was wrongly classified as ' + w.wrongStorage + 'GB → correct is ' + w.correctStorage + 'GB\n';
+        });
+    }
+    return knowledge;
 }
 
 loadRulesFromCloud();
