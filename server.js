@@ -705,22 +705,51 @@ Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
 STEP 2 - CLASSIFY: Once you identify the company, look at the EXACT location described below.
 
 === عادي (Normal BGA) ===
-Samsung KM: LINE 3 of chip - find letter before 100/200/600/700/800/900 → N=8G|E=16G|X/D=32G|C/H/P=64G|G/V=128G|F/S=256G
-  RAM from same code: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-SK Hynix H9: LINE 2 - digits after first 4 chars → 17/18/19=16G|26/27=32G|52/53=64G|16=128G
-  RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
-Kingston (TAIWAN): LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
-SanDisk SDIN (TAIWAN): LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+Company: Samsung (سامسونج) - Code prefix: KM (first 2 letters = company ID)
+  Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
+  Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
+  RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D or 4=4GB | C or J=6-8GB
+
+Company: SK Hynix (هاينكس) - Code prefix: H9 (first 2 letters = company ID)
+  Storage location: LINE 2 - the digits after the first 4 characters
+  Storage codes: 17/18/19=16G | 26/27=32G | 52/53=64G | 16=128G
+  RAM codes: A4=0.5GB | A8=1GB | AB=2GB | AD=3GB | AC=4GB | AE=6GB
+
+Company: Kingston (كينجستون) - Origin: TAIWAN
+  Storage location: LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
+
+Company: SanDisk (سان ديسك) - Code prefix: SDIN - Origin: TAIWAN
+  Storage location: LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
 
 === زجاجي (eMMC/UFS) ===
-Samsung KLM/KLU eMMC: LINE 3 → AG=16G|BG=32G|CG=64G|DG=128G|EG=256G|FG=512G
-SK Hynix H26/H28/HN8: LINE 1 → 54=16G|64=32G|74=64G|88=128G|9=256G
-Toshiba THG (TAIWAN/JAPAN): LINE 3 → G7=16G|G8=32G|G9=64G|T0=128G|T1=256G|T2=512G
-SanDisk SDIN (CHINA): LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
-Micron JW/JZ: full code lookup from table - no abbreviations
-YMEC: bottom-left of chip → YMEC6=32G|YMEC7=64G|YMEC8=128G|YMEC9=256G
-UNIC: last line → 05G=32G|06G=64G|07G=128G
-Kingston eMMC (CHINA): LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
+Company: Samsung (سامسونج زجاجي) - Code prefix: KLM or KLU (first 3 letters = company ID)
+  Storage location: LINE 3 - the 5th character pair indicates storage
+  Storage codes: AG=16G | BG=32G | CG=64G | DG=128G | EG=256G | FG=512G
+
+Company: SK Hynix (هاينكس زجاجي) - Code prefix: H26 or H28 or HN8
+  Storage location: LINE 1 - digits in the code
+  Storage codes: 54=16G | 64=32G | 74=64G | 88=128G | 9=256G
+
+Company: Toshiba (توشيبا) - Code prefix: THG - Origin: TAIWAN/JAPAN
+  Storage location: LINE 3
+  Storage codes: G7=16G | G8=32G | G9=64G | T0=128G | T1=256G | T2=512G
+
+Company: SanDisk (سان ديسك زجاجي) - Code prefix: SDIN - Origin: CHINA
+  Storage location: LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+
+Company: Micron (ميكرون) - Code prefix: JW or JZ
+  Storage: full code lookup from table - no abbreviations
+
+Company: YMEC (يمك) - Code prefix: YMEC
+  Storage location: bottom-left of chip - digit after YMEC
+  Storage codes: YMEC6=32G | YMEC7=64G | YMEC8=128G | YMEC9=256G
+
+Company: UNIC (يونيك) - Code prefix: 08EMCP or 16EMCP
+  Storage location: last line
+  Storage codes: 05G=32G | 06G=64G | 07G=128G
+
+Company: Kingston (كينجستون زجاجي) - Origin: CHINA
+  Storage location: LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
 ${expertKnowledge}
 Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"which line/rule you used e.g. Samsung KM line3 letter X before 800=32G"}
