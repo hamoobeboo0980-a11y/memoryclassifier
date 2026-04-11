@@ -697,7 +697,7 @@ STEP 2 - CLASSIFY: Once you identify the company, look at the EXACT location des
 Company: Samsung (سامسونج) - Code prefix: KM (first 2 letters = company ID)
   Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
   Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
-  RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D or 4=4GB | C or J=6-8GB
+  RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D=4GB | 4 or C=6GB | J or P=8GB | L=10GB | M=12GB
 
 Company: SK Hynix (هاينكس) - Code prefix: H9 (first 2 letters = company ID)
   Storage location: LINE 2 - the digits after the first 4 characters
