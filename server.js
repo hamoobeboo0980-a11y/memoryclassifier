@@ -6,12 +6,26 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY || "AIzaSyAbHZibxNq1bPUVHxW8aa8GvPAsMgCyzgQ");
+const GEMINI_KEY = process.env.GEMINI_KEY || '';
+if (!GEMINI_KEY) {
+    console.warn('⚠️  GEMINI_KEY environment variable is not set! Gemini features will not work.');
+    console.warn('   Set it with: export GEMINI_KEY=your_api_key_here');
+}
+const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ═══ Health check endpoint ═══
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        geminiKeySet: !!GEMINI_KEY,
+        model: GEMINI_MODEL
+    });
+});
 
 // ═══════════════════════════════════════════════════════════════
 // قواعد البيانات الكاملة
@@ -685,6 +699,7 @@ app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+        if (!GEMINI_KEY) return res.status(503).json({ error: "GEMINI_KEY not configured", code: "NOT_FOUND" });
 
         const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
