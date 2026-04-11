@@ -58,6 +58,7 @@
   .led[data-step="cache"].active { background: #00e676; color: #00e676; }
   .led[data-step="correction"].active { background: #aa66ff; color: #aa66ff; }
   .led[data-step="db"].active { background: #448aff; color: #448aff; }
+  .led[data-step="trained_shortcut"].active { background: #76ff03; color: #76ff03; }
   .led[data-step="learned"].active { background: #00e5ff; color: #00e5ff; }
   .led[data-step="fast"].active { background: #ffea00; color: #ffea00; }
   .led[data-step="careful"].active { background: #ff9100; color: #ff9100; }
@@ -169,6 +170,32 @@
   }
 
   #canvas { display: none; }
+
+  #frozenImage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+    z-index: 5;
+  }
+
+  #resumeCameraBtn {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 10;
+    background: rgba(0,0,0,0.7);
+    color: #0f0;
+    border: 1px solid #0f0;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    display: none;
+  }
+  #resumeCameraBtn:active { background: #0f0; color: #000; }
 
   .cam-overlay {
     position: absolute;
@@ -812,6 +839,8 @@
     <div class="camera-wrapper" id="cameraWrapper">
       <video id="video" autoplay playsinline muted onclick="tapCapture()"></video>
       <canvas id="canvas"></canvas>
+      <img id="frozenImage" alt="captured">
+      <button id="resumeCameraBtn" onclick="resumeCamera()">🔄 رجع الكاميرا</button>
       <div class="cam-overlay" id="overlay">
         <div class="target-frame" id="targetFrame">
           <div class="c1"></div>
@@ -866,6 +895,7 @@
     <div class="led" data-step="cache" title="كاش"></div>
     <div class="led" data-step="correction" title="تصحيحات"></div>
     <div class="led" data-step="db" title="جداول"></div>
+    <div class="led" data-step="trained_shortcut" title="اختصار المدرب"></div>
     <div class="led" data-step="learned" title="متعلم"></div>
     <div class="led" data-step="fast" title="سريعة"></div>
     <div class="led" data-step="careful" title="بعناية"></div>
@@ -940,17 +970,55 @@
     </div>
   </div>
 
+  <!-- Gemini Race Panel - عين Gemini المستقلة -->
+  <div id="raceCard" style="display:none;background:var(--card);border:1px solid #7b6cff33;border-radius:16px;margin:8px 0;overflow:hidden;position:relative">
+    <div style="padding:8px 14px;border-bottom:1px solid #7b6cff33;display:flex;align-items:center;gap:6px">
+      <span style="font-size:14px">👁️</span>
+      <span style="font-size:13px;font-weight:700;background:linear-gradient(135deg,#7b6cff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent">عين Gemini</span>
+      <span id="raceStatus" style="font-size:11px;color:var(--muted)">بتحلل...</span>
+      <span id="raceTime" style="margin-right:auto;font-size:10px;color:#555"></span>
+    </div>
+    <div id="raceBody" style="padding:12px 14px;min-height:40px">
+      <div id="raceLoading" style="text-align:center;color:var(--muted);font-size:12px">
+        <span class="led scanning-led" style="display:inline-block;width:6px;height:6px;background:#7b6cff;border-radius:50;margin-left:4px"></span>
+        جاري التحليل المستقل...
+      </div>
+      <div id="raceResult" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div id="raceTypeBadge" style="font-size:12px;padding:3px 10px;border-radius:8px;border:1px solid var(--border)"></div>
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <span id="raceStorage" style="font-size:24px;font-weight:900;color:var(--accent)">--</span>
+            <span style="font-size:12px;color:var(--muted)">GB</span>
+          </div>
+          <div id="raceRam" style="font-size:11px;color:var(--muted)"></div>
+        </div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="raceCode" style="font-size:11px;color:#888;font-family:monospace;word-break:break-all"></span>
+          <span id="raceConfBadge" style="font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(123,108,255,0.15);color:#7b6cff"></span>
+        </div>
+        <div id="raceReason" style="font-size:10px;color:#555;margin-top:4px"></div>
+      </div>
+      <div id="raceError" style="display:none;text-align:center;color:#ff6b35;font-size:12px"></div>
+    </div>
+    <!-- مقارنة النتائج -->
+    <div id="raceCompare" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;font-size:11px">
+      <div id="raceCompareText" style="color:var(--muted);text-align:center"></div>
+    </div>
+  </div>
+
   <!-- Chat Section - تحت النتيجة -->
   <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;margin:8px 0;overflow:hidden">
     <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
       🤖 <span style="color:var(--accent);font-weight:700">المساعد</span>
       <span style="font-size:11px">- صحّف له أو اسأله</span>
+      <span id="chatStatsLabel" style="margin-right:auto;font-size:10px;color:#555"></span>
     </div>
-    <div id="chatMessages" style="height:100px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px"></div>
+    <div id="chatMessages" role="log" aria-live="polite" style="height:120px;overflow-y:auto;padding:8px 12px;display:flex;flex-direction:column;gap:4px"></div>
     <div style="display:flex;gap:6px;padding:6px 12px;border-top:1px solid var(--border)">
       <textarea id="chatInput" rows="2" placeholder="اكتب سؤالك هنا... (Enter = إرسال, Shift+Enter = سطر جديد)" style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text);font-family:Cairo,sans-serif;font-size:12px;outline:none;resize:none" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"></textarea>
       <button onclick="sendChat()" style="background:linear-gradient(135deg,var(--accent),#7b6cff);border:none;border-radius:10px;color:#000;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;padding:8px 14px;cursor:pointer">إرسال</button>
-      <button onclick="testJbin()" title="تست السحابة" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:14px;padding:8px 10px;cursor:pointer">☁️</button>
+      <button onclick="sendImageToChat()" title="وريه الصورة" aria-label="ارسل الصورة للشات" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:14px;padding:8px 10px;cursor:pointer">📷</button>
+      <button onclick="testJbin()" title="تست السحابة" aria-label="اختبار اتصال السحابة" style="background:#1a1a2e;border:1px solid var(--border);border-radius:10px;color:#888;font-size:14px;padding:8px 10px;cursor:pointer">☁️</button>
     </div>
   </div>
 
@@ -1239,6 +1307,162 @@ function unfreezeCamera() {
   }
 }
 
+// === زرار رجع الكاميرا - يخفي الصورة المجمدة ويرجع اللايف ===
+function resumeCamera() {
+  var frozenImg = document.getElementById('frozenImage');
+  if (frozenImg) frozenImg.style.display = 'none';
+  var resumeBtn = document.getElementById('resumeCameraBtn');
+  if (resumeBtn) resumeBtn.style.display = 'none';
+  unfreezeCamera();
+  if (stream && cameraActive) setTimeout(startAutoAnalysis, 1000);
+}
+
+// ═══════════════════════════════════════════════════════
+// 🏁 GEMINI RACE - عين Gemini المستقلة
+// بتشتغل بالتوازي مع المسار الأصلي
+// ═══════════════════════════════════════════════════════
+var _mainResult = null; // نتيجة المسار الأصلي للمقارنة
+var _raceResult = null; // نتيجة عين Gemini
+
+function resetRacePanel() {
+  _mainResult = null;
+  _raceResult = null;
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  card.style.display = 'block';
+  document.getElementById('raceLoading').style.display = 'block';
+  document.getElementById('raceResult').style.display = 'none';
+  document.getElementById('raceError').style.display = 'none';
+  document.getElementById('raceCompare').style.display = 'none';
+  document.getElementById('raceStatus').textContent = 'بتحلل...';
+  document.getElementById('raceStatus').style.color = 'var(--muted)';
+  document.getElementById('raceTime').textContent = '';
+}
+
+function showRaceResult(parsed, elapsed) {
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  document.getElementById('raceLoading').style.display = 'none';
+  document.getElementById('raceError').style.display = 'none';
+  document.getElementById('raceResult').style.display = 'block';
+  document.getElementById('raceTime').textContent = elapsed + 's';
+
+  if (parsed.storage && parsed.type) {
+    var isGlass = parsed.type === 'زجاجي';
+    document.getElementById('raceTypeBadge').textContent = isGlass ? '🔵 زجاجي' : '⚪ عادي';
+    document.getElementById('raceTypeBadge').style.background = isGlass ? 'rgba(68,138,255,0.15)' : 'rgba(255,255,255,0.06)';
+    document.getElementById('raceTypeBadge').style.color = isGlass ? '#448aff' : 'var(--text)';
+    document.getElementById('raceStorage').textContent = parsed.storage;
+    document.getElementById('raceCode').textContent = parsed.code || '';
+    document.getElementById('raceRam').textContent = parsed.ram ? '💾 RAM ' + parsed.ram + ' GB' : '';
+    var conf = parsed.confidence || 0;
+    document.getElementById('raceConfBadge').textContent = '🎯 ' + conf + '%' + (parsed.dbVerified ? ' ✅DB' : '');
+    document.getElementById('raceStatus').textContent = '✅ تم';
+    document.getElementById('raceStatus').style.color = '#00e676';
+    document.getElementById('raceReason').textContent = parsed.reason ? '📝 ' + parsed.reason : '';
+  } else {
+    document.getElementById('raceTypeBadge').textContent = '⚠️ مش واضح';
+    document.getElementById('raceTypeBadge').style.background = 'rgba(255,107,53,0.15)';
+    document.getElementById('raceTypeBadge').style.color = '#ff6b35';
+    document.getElementById('raceStorage').textContent = '?';
+    document.getElementById('raceCode').textContent = parsed.code || '';
+    document.getElementById('raceRam').textContent = '';
+    document.getElementById('raceConfBadge').textContent = '';
+    document.getElementById('raceStatus').textContent = '⚠️ جزئي';
+    document.getElementById('raceStatus').style.color = '#ffaa00';
+    document.getElementById('raceReason').textContent = parsed.reason ? '📝 ' + parsed.reason : '';
+  }
+
+  _raceResult = parsed;
+  compareResults();
+}
+
+function showRaceError(msg) {
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  document.getElementById('raceLoading').style.display = 'none';
+  document.getElementById('raceResult').style.display = 'none';
+  document.getElementById('raceError').style.display = 'block';
+  document.getElementById('raceError').textContent = '⚠️ ' + msg;
+  document.getElementById('raceStatus').textContent = '❌ فشل';
+  document.getElementById('raceStatus').style.color = '#ff4455';
+}
+
+function setMainResult(parsed) {
+  _mainResult = parsed;
+  compareResults();
+}
+
+function compareResults() {
+  if (!_mainResult || !_raceResult) return;
+  var box = document.getElementById('raceCompare');
+  var txt = document.getElementById('raceCompareText');
+  if (!box || !txt) return;
+  box.style.display = 'block';
+
+  var mainHas = _mainResult.storage && _mainResult.type;
+  var raceHas = _raceResult.storage && _raceResult.type;
+
+  if (!mainHas && !raceHas) {
+    txt.innerHTML = '🤷 الاتنين مش شايفين كود ذاكرة';
+    return;
+  }
+  if (!mainHas && raceHas) {
+    txt.innerHTML = '👁️ <b style="color:#7b6cff">عين Gemini فازت</b> - المصنّف مش لاقي بس العين شايفه';
+    return;
+  }
+  if (mainHas && !raceHas) {
+    txt.innerHTML = '⚡ <b style="color:var(--accent)">المصنّف فاز</b> - العين مش شايفه بس المصنّف لاقيه';
+    return;
+  }
+
+  // الاتنين لاقيين
+  var sameStorage = String(_mainResult.storage) === String(_raceResult.storage);
+  var sameType = _mainResult.type === _raceResult.type;
+  var sameCode = (_mainResult.code || '').toUpperCase() === (_raceResult.code || '').toUpperCase();
+  var mainConf = _mainResult.confidence || 0;
+  var raceConf = _raceResult.confidence || 0;
+
+  if (sameStorage && sameType) {
+    txt.innerHTML = '✅ <b style="color:#00e676">متفقين!</b> ' + _mainResult.storage + 'GB ' + _mainResult.type +
+      (sameCode ? '' : ' (كود مختلف: ' + _mainResult.code + ' vs ' + _raceResult.code + ')') +
+      ' [' + mainConf + '% vs ' + raceConf + '%]';
+  } else {
+    txt.innerHTML = '⚔️ <b style="color:#ff6b35">مختلفين!</b> المصنّف: ' + _mainResult.storage + 'GB ' + _mainResult.type +
+      ' [' + mainConf + '%] | العين: ' + _raceResult.storage + 'GB ' + _raceResult.type + ' [' + raceConf + '%]';
+  }
+}
+
+async function startGeminiRace(base64, startTime) {
+  resetRacePanel();
+  try {
+    // بنبعت الصورة الكاملة (مش المقصوصة) لو متاحة
+    var imageToSend = window._lastCapturedImage || base64;
+    // لو الصورة فيها data:image prefix شيلها
+    var cleanBase64 = imageToSend.includes(',') ? imageToSend.split(',')[1] : imageToSend;
+
+    var raceRes = await fetch('/api/gemini-race', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ imageBase64: cleanBase64 })
+    });
+
+    var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (!raceRes.ok) {
+      var errData = {};
+      try { errData = await raceRes.json(); } catch(e) {}
+      showRaceError((errData.error || 'فشل') + ' (' + elapsed + 's)');
+      return;
+    }
+
+    var raceData = await raceRes.json();
+    showRaceResult(raceData, elapsed);
+  } catch(e) {
+    showRaceError(e.message.substring(0, 60));
+  }
+}
+
 async function analyzeImage(base64, previewSrc) {
   if (isAnalyzing) return;
   isAnalyzing = true;
@@ -1251,16 +1475,13 @@ async function analyzeImage(base64, previewSrc) {
   showError(false);
 
   // ═══════════════════════════════════════════════════════
-  // SPEED-FIRST HYBRID SYSTEM v23
-  // FAST = Primary UI (عرض فوري) | Gemini = Background Verification
+  // SEQUENTIAL FLOW v28 + GEMINI RACE (parallel)
+  // المسار الأصلي (OCR → Gemini fallback) + عين Gemini مستقلة بالتوازي
   // ═══════════════════════════════════════════════════════
-  var raceWon = false;
-  var abortOCR = new AbortController();
-  var abortGemini = new AbortController();
   var startTime = Date.now();
-  var fastResult = null;     // نتيجة FAST للعرض الفوري
-  var geminiDone = false;    // هل Gemini خلص؟
-  var geminiResult = null;   // نتيجة Gemini للتحقق
+
+  // 🏁 Fire Gemini Race in parallel (doesn't block main flow)
+  startGeminiRace(base64, startTime);
 
   // Validation Gate - التحقق من صحة النتيجة
   function validateResult(parsed) {
@@ -1271,21 +1492,16 @@ async function analyzeImage(base64, previewSrc) {
     return false;
   }
 
-  function submitWinner(parsed, source) {
-    if (raceWon) return false;
-    raceWon = true;
+  function showWinner(parsed, source) {
     var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     var conf = parsed.confidence || 0;
     console.log('🏆 WINNER: ' + source + ' (conf=' + conf + ') في ' + elapsed + 's');
-
-    // Hard abort - إلغاء حقيقي لكل fetch requests
-    try { abortOCR.abort(); } catch(e) {}
-    try { abortGemini.abort(); } catch(e) {}
 
     stopLEDAnimation();
     if (parsed.step) lightLED(parsed.step);
 
     lastParsed = parsed;
+    setMainResult(parsed); // للمقارنة مع عين Gemini
     var detectedCode = parsed.code || '';
     currentCode = detectedCode;
     var manualInput = document.getElementById('manualCode');
@@ -1324,216 +1540,142 @@ async function analyzeImage(base64, previewSrc) {
       addChatMsg('المساعد', '⚠️ كود جديد: ' + detectedCode + ' - اكتب المساحة والنوع [' + source + ' ' + elapsed + 's]', 'bot');
     }
     isAnalyzing = false;
-    unfreezeCamera();
-    if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-    return true;
+    // الصورة تفضل ثابتة - المستخدم يرجع الكاميرا بالزرار
   }
 
+  function showFail(errorMsg) {
+    stopLEDAnimation();
+    lightLED('failed');
+    stopScanBar(false);
+    showLoading(false);
+    showError(errorMsg || '❌ مش شايف كود ذاكرة');
+    setMainResult({ code: '', storage: '', type: '', confidence: 0 }); // فشل - للمقارنة
+    isAnalyzing = false;
+    // الصورة تفضل ثابتة - المستخدم يرجع الكاميرا بالزرار
+  }
 
-
-  // ═══════════════════════════════════════════════════════
-  // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
-  // v25: بديل Tesseract.js - أسرع وأدق على الموبايل (0.5-1.5ث)
-  // ═══════════════════════════════════════════════════════
-  var ocrPromise = (async function() {
+  try {
+    // ═══════════════════════════════════════════════════════
+    // المسار 1: Vision OCR API → تنظيف → DB Lookup (سريع)
+    // v28: يشتغل الأول - لو نجح يعرض فوراً
+    // ═══════════════════════════════════════════════════════
+    var ocrResult = null;
     try {
-      if (abortOCR.signal.aborted) return null;
-
-      // إرسال الصورة لـ Vision OCR API على السيرفر
+      console.log('🔤 Step 1: OCR بيبدأ...');
       var visionRes = await fetch('/api/vision-ocr', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64 }),
-        signal: abortOCR.signal
+        body: JSON.stringify({ imageBase64: base64 })
       });
-      if (abortOCR.signal.aborted || raceWon) return null;
-      if (!visionRes.ok) {
-        console.log('⚠️ Vision OCR API فشل:', visionRes.status);
-        return null;
-      }
-      var visionData = await visionRes.json();
-      if (abortOCR.signal.aborted || raceWon) return null;
 
-      var ocrText = (visionData.text || '').trim();
-      console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
-      if (!ocrText || ocrText.length < 3) return null;
+      if (visionRes.ok) {
+        var visionData = await visionRes.json();
+        var ocrText = (visionData.text || '').trim();
+        console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
 
-      // تنظيف وبحث في DB
-      var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
-      // أضف النص كاملاً كسطر إضافي
-      lines.unshift(ocrText);
-      for (var li = 0; li < lines.length; li++) {
-        if (raceWon || abortOCR.signal.aborted) return null;
-        var line = ocrCleanup(lines[li]);
-        if (line.length < 4) continue;
-        // LOCAL DB lookup
-        var localResult = searchInDB(line);
-        if (localResult && localResult.storage && localResult.type) {
-          var company = localResult.company || detectCompanyLocal(line);
-          var result = {
-            code: line, storage: localResult.storage, type: localResult.type,
-            company: company, ram: localResult.ram || null,
-            step: 'vision_db', confidence: 93
-          };
-          // FAST = Primary UI Path - يعرض فوراً!
-          fastResult = result;
-          submitWinner(result, 'FAST');
-          return result;
-        }
-      }
+        if (ocrText && ocrText.length >= 3) {
+          // تنظيف وبحث في DB
+          var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
+          lines.unshift(ocrText);
+          for (var li = 0; li < lines.length; li++) {
+            var line = ocrCleanup(lines[li]);
+            if (line.length < 4) continue;
+            // LOCAL DB lookup - نفس منطق التصنيف
+            var localResult = searchInDB(line);
+            if (localResult && localResult.storage && localResult.type) {
+              var company = localResult.company || detectCompanyLocal(line);
+              ocrResult = {
+                code: line, storage: localResult.storage, type: localResult.type,
+                company: company, ram: localResult.ram || null,
+                step: 'vision_db', confidence: 93
+              };
+              break;
+            }
+          }
 
-      // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر
-      if (!raceWon && ocrText.length >= 4) {
-        var lookupRes = await fetch('/api/lookup', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' }),
-          signal: abortOCR.signal
-        });
-        if (!abortOCR.signal.aborted && !raceWon && lookupRes.ok) {
-          var lookupData = await lookupRes.json();
-          if (lookupData.found && lookupData.storage && lookupData.type) {
-            var result2 = {
-              code: lookupData.code || ocrText, storage: lookupData.storage,
-              type: lookupData.type, company: lookupData.company || '',
-              ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
-            };
-            fastResult = result2;
-            submitWinner(result2, 'FAST');
-            return result2;
+          // لو ملقاش في DB محلياً - جرب /api/lookup على السيرفر (نفس ترتيب المسار)
+          if (!ocrResult && ocrText.length >= 4) {
+            var lookupRes = await fetch('/api/lookup', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ code: ocrText, learnedCodes: cloudLearned, source: 'vision' })
+            });
+            if (lookupRes.ok) {
+              var lookupData = await lookupRes.json();
+              if (lookupData.found && lookupData.storage && lookupData.type) {
+                ocrResult = {
+                  code: lookupData.code || ocrText, storage: lookupData.storage,
+                  type: lookupData.type, company: lookupData.company || '',
+                  ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
+                };
+              }
+            }
           }
         }
+      } else {
+        console.log('⚠️ Vision OCR API فشل:', visionRes.status);
       }
-      return null;
     } catch(e) {
-      if (e.name === 'AbortError') { console.log('Vision OCR ألغي'); return null; }
-      console.log('Vision OCR فشل:', e.message);
-      return null;
+      console.log('⚠️ Vision OCR فشل:', e.message);
     }
-  })();
 
-  // ═══════════════════════════════════════════════════════
-  // المسار 2: Gemini Vision (True RAG + Confidence)
-  // ═══════════════════════════════════════════════════════
-  var geminiPromise = (async function() {
+    // لو OCR نجح → نعرض النتيجة فوراً
+    if (ocrResult && validateResult(ocrResult)) {
+      console.log('✅ OCR نجح - بيعرض النتيجة');
+      showWinner(ocrResult, 'FAST');
+      return;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // المسار 2: Gemini fallback (أذكى وأدق)
+    // بيشتغل بس لو OCR فشل - نفس منطق التصنيف
+    // ═══════════════════════════════════════════════════════
+    console.log('🧠 Step 2: OCR فشل → Gemini بيبدأ...');
     try {
-      if (raceWon || abortGemini.signal.aborted) return null;
       var geminiRes = await fetch('/api/analyze', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned }),
-        signal: abortGemini.signal
+        body: JSON.stringify({ imageBase64: base64, learnedCodes: cloudLearned })
       });
-      if (raceWon || abortGemini.signal.aborted) return null;
+
       if (!geminiRes.ok) {
         var errData = {};
         try { errData = await geminiRes.json(); } catch(e){}
-        return { error: true, data: errData };
+        var errStep = (errData && errData.step) || 'failed';
+        lightLED(errStep);
+        showFail('❌ ' + ((errData && errData.error) || 'فشل التحليل - جرب تاني'));
+        return;
       }
+
       var parsed = await geminiRes.json();
       if (!parsed.code) parsed = {code:'', storage:'', type:'', company:''};
-      // السيرفر بيرجع confidence جاهز
       if (!parsed.confidence) {
         parsed.confidence = (parsed.storage && parsed.type) ? 70 : 30;
       }
-      
-      if (parsed.code && isValidCode(parsed.code)) {
-        geminiDone = true;
-        geminiResult = parsed;
-        
-        // لو FAST لسه معرضش → Gemini يعرض هو (fallback)
-        if (!raceWon && parsed.storage && parsed.type) {
-          console.log('🧠 Gemini يعرض (FAST ملحقش)');
-          submitWinner(parsed, 'Gemini');
-          return parsed;
-        }
-        
-        // لو FAST عرض خلاص → Gemini يتحقق في الخلف (Post-Validation)
-        if (raceWon && fastResult) {
-          if (parsed.storage && parsed.type && parsed.code !== fastResult.code) {
-            console.log('🔄 Post-Validation: Gemini يقول ' + parsed.code + ' مش ' + fastResult.code);
-            // تسجيل التصحيح للتعلم
-            addChatMsg('المساعد', '🔄 Gemini صحح: ' + parsed.code + ' - ' + parsed.storage + 'GB ' + parsed.type + ' (كان ' + fastResult.code + ')', 'bot');
-            // تحديث العرض بنتيجة Gemini الأدق
-            lastParsed = parsed;
-            currentCode = parsed.code;
-            var manualInput = document.getElementById('manualCode');
-            if (manualInput) manualInput.value = parsed.code;
-            displayResult(parsed.code, {
-              storage: parsed.storage, type: parsed.type,
-              ram: parsed.ram || null,
-              capacity: parsed.storage + (parsed.type === 'عادي' ? '+?' : '')
-            }, parsed.company);
-            var txt = document.getElementById('statusText');
-            var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            if (txt) txt.textContent = '🔄 Gemini صحح (' + elapsed + 's)';
-          } else {
-            console.log('✅ Post-Validation: Gemini وافق على FAST');
-          }
-        }
-      }
-      return parsed;
-    } catch(e) {
-      if (e.name === 'AbortError') { console.log('Gemini ألغي - OCR كسب'); return null; }
-      console.log('Gemini فشل:', e.message);
-      return { error: true, data: { error: e.message, step: 'failed' } };
-    }
-  })();
 
-  // ═══════════════════════════════════════════════════════
-  // PARALLEL WAIT: الاتنين شغالين - FAST يكسب فوراً + Gemini يتحقق في الخلف
-  // ═══════════════════════════════════════════════════════
-  try {
-    // نستنى الاتنين يخلصوا - بس FAST ممكن يكسب في أي لحظة ويعرض فوراً
-    // Gemini بيكمل في الخلف للتحقق (Post-Validation)
-    await Promise.allSettled([ocrPromise, geminiPromise]);
-    
-    // لو محدش كسب لغاية دلوقتي → fallback
-    if (!raceWon) {
-      // لو Gemini جاب نتيجة كاملة → يكسب
-      if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code) && geminiResult.storage && geminiResult.type) {
-        console.log('🧠 Fallback: Gemini يكسب');
-        submitWinner(geminiResult, 'Gemini');
+      if (parsed.code && isValidCode(parsed.code)) {
+        if (parsed.storage && parsed.type) {
+          console.log('🧠 Gemini نجح - بيعرض النتيجة');
+          showWinner(parsed, 'Gemini');
+          return;
+        }
+        // Gemini جاب كود بس بدون تصنيف كامل
+        console.log('🧠 Gemini partial - كود بدون تصنيف');
+        showWinner(parsed, 'Gemini');
+        return;
       }
-      // لو Gemini جاب كود بس بدون تصنيف
-      else if (geminiResult && !geminiResult.error && geminiResult.code && isValidCode(geminiResult.code)) {
-        console.log('🧠 Fallback: Gemini partial');
-        submitWinner(geminiResult, 'Gemini');
-      }
-      // لو Gemini فشل وفي error
-      else if (geminiResult && geminiResult.error) {
-        stopLEDAnimation();
-        lightLED((geminiResult.data && geminiResult.data.step) || 'failed');
-        stopScanBar(false);
-        showLoading(false);
-        showError('❌ ' + ((geminiResult.data && geminiResult.data.error) || 'فشل التحليل - جرب تاني'));
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-      }
-      // مفيش حاجة خالص
-      else {
-        stopLEDAnimation();
-        lightLED('failed');
-        stopScanBar(false);
-        showLoading(false);
-        addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
-        showError('❌ مش شايف كود ذاكرة');
-        isAnalyzing = false;
-        unfreezeCamera();
-        if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
-      }
+
+      // Gemini مرجعش حاجة صالحة
+      addChatMsg('المساعد', '❓ مش شايف كود ذاكرة - صوّر أقرب على الشريحة السوداء الكبيرة أو اكتب الكود يدوي', 'bot');
+      showFail('❌ مش شايف كود ذاكرة');
+
+    } catch(e) {
+      console.log('⚠️ Gemini فشل:', e.message);
+      showFail('⚠️ خطأ في الاتصال\n' + e.message);
     }
+
   } catch(e) {
-    if (!raceWon) {
-      stopLEDAnimation();
-      lightLED('failed');
-      stopScanBar(false);
-      showLoading(false);
-      showError('⚠️ خطأ في الاتصال\n' + e.message);
-      isAnalyzing = false;
-      unfreezeCamera();
-    }
+    showFail('⚠️ خطأ في الاتصال\n' + e.message);
   }
 }
 
@@ -2367,6 +2509,13 @@ async function captureAndAnalyze() {
         canvas.width = img.width;
         canvas.height = img.height;
         ctx.drawImage(img, 0, 0);
+        // حفظ الصورة الكاملة لعين Gemini في الشات
+        window._lastCapturedImage = canvas.toDataURL('image/jpeg', 0.8);
+        // عرض الصورة المجمدة فوق الفيديو
+        var frozenImg = document.getElementById('frozenImage');
+        if (frozenImg) { frozenImg.src = window._lastCapturedImage; frozenImg.style.display = 'block'; }
+        var resumeBtn = document.getElementById('resumeCameraBtn');
+        if (resumeBtn) resumeBtn.style.display = 'block';
         var cropped = cropToFocusBox(canvas, img.width, img.height);
         var base64 = cropped.toDataURL('image/jpeg', 1.0);
         var imageData = base64.split(',')[1];
@@ -2382,6 +2531,13 @@ async function captureAndAnalyze() {
 
   // Fallback: Canvas
   ctx.drawImage(video, 0, 0, w, h);
+  // حفظ الصورة الكاملة لعين Gemini في الشات
+  window._lastCapturedImage = canvas.toDataURL('image/jpeg', 0.8);
+  // عرض الصورة المجمدة فوق الفيديو
+  var frozenImg = document.getElementById('frozenImage');
+  if (frozenImg) { frozenImg.src = window._lastCapturedImage; frozenImg.style.display = 'block'; }
+  var resumeBtn = document.getElementById('resumeCameraBtn');
+  if (resumeBtn) resumeBtn.style.display = 'block';
   var cropped = cropToFocusBox(canvas, w, h);
   var base64 = cropped.toDataURL('image/jpeg', 1.0);
   var imageData = base64.split(',')[1];
@@ -2466,6 +2622,17 @@ function sendChat() {
   chatHistory.push({role: 'user', text: msg});
   addChatMsg('أنت', msg, 'user');
   processChat(msg);
+}
+
+// 📷 زر "وريه الصورة" - يرسل آخر صورة كاملة لـ Gemini
+function sendImageToChat() {
+  if (!window._lastCapturedImage) {
+    addChatMsg('المساعد', '📷 مفيش صورة متاحة - صوّر الأول!', 'bot');
+    return;
+  }
+  addChatMsg('أنت', '📷 شوف الصورة دي', 'user');
+  chatHistory.push({role: 'user', text: '📷 شوف الصورة دي'});
+  processChat('حلل الصورة دي');
 }
 
 function addChatMsg(from, text, role) {
@@ -2609,7 +2776,8 @@ async function processChat(userMsg) {
           company: (lastParsed && lastParsed.company) || ''
         },
         history: chatHistory.slice(-10),
-        learnedCodes: cloudLearned
+        learnedCodes: cloudLearned,
+        lastImage: window._lastCapturedImage || null
       })
     });
     var chatData = await chatRes.json();
@@ -2625,7 +2793,9 @@ async function processChat(userMsg) {
     else if (chatData.source === 'learned') sourceLabel = '🧠 من التدريب';
     else if (chatData.source === 'db') sourceLabel = '📊 من الجدول';
     else if (chatData.source === 'pattern') sourceLabel = '🔄 من الأنماط';
+    else if (chatData.source === 'trained_shortcut') sourceLabel = '🎯 من اختصار المدرب';
     else if (chatData.source === 'gemini') sourceLabel = '🤖 من Gemini';
+    else if (chatData.source === 'gemini_vision') sourceLabel = '👁️ عين Gemini';
     else if (chatData.source === 'system') sourceLabel = '⚙️ النظام';
     
     // لو فيه action خاص - أضف تأكيد
@@ -2633,6 +2803,8 @@ async function processChat(userMsg) {
       replyText += '\n\n✅ تم الحفظ على السحابة - مش هنساها أبداً';
     } else if (chatData.action === 'rule_saved') {
       replyText += '\n\n📚 تم حفظ القاعدة على السحابة ✅';
+    } else if (chatData.action === 'shortcut_saved') {
+      replyText += '\n\n🎯 تم حفظ الاختصار على السحابة ✅';
     } else if (chatData.action === 'deleted') {
       // لو اتمسح كود - امسحه من cloudLearned كمان
       if (chatData.deletedCode) {
@@ -2661,6 +2833,8 @@ function uploadImage(event) {
   var reader = new FileReader();
   reader.onload = function(e) {
     var base64Full = e.target.result;
+    // حفظ الصورة الكاملة لعين Gemini
+    window._lastCapturedImage = base64Full;
     var imageData = base64Full.split(',')[1];
     analyzeImage(imageData, base64Full);
   };

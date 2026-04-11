@@ -741,6 +741,101 @@ app.post('/api/lookup', (req, res) => {
 // looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
+// البرومبت الموحد - برومنت واحد في مكان واحد لكل جيميناي
+// ═══════════════════════════════════════════════════════════════
+const UNIFIED_PROMPT = `أنت خبير في شرائح الذاكرة (Memory IC chips). بتتكلم مصري.
+هذه صورة بورد موبايل عليها شرائح.
+
+مهم جداً:
+
+دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28/HN8 أو Toshiba THG أو SanDisk SDIN أو Kingston أو YMEC أو UNIC أو Micron JW/JZ
+
+تجاهل تماماً أي ايسي رام أو بروسيسور مكتوب عليه MediaTek أو Qualcomm أو Snapdragon أو SDM أو MT
+-الكود المنقوش على ايسي الذاكرة نفسه لازم تقراه بعنايه عشان هتطلع منه بيانات الذاكرة والرام
+
+ركز في الكود الي في وسط المربع الاول ولو الصورة من بعيد وفيها شرائح كتير، اختار ايسي الذاكرة الصح واقرا الكود المنقوش الي عليه بعنايه
+
+لو الكود مش واضح قول بالظبط كل الحروف الي واضحه وعرفت تقراها من اعلى الايسي بدون تخاريف
+كل جلسه تتفتح لابد تشوف امثله التفكيك مره واحده ويخزن الي فهمه منها في دماغه عشان هتفكك بيها اي صوره طول الجلسه
+لو الكود واضح فككه ورد بالنتيجه علي طول في الشات والنتيجه
+لوفشلت دور عليه في الخبره المتراكمه بعد كده الجداول
+
+ودي اهم خبره عندك طريقه تفكيك كل الشركات
+=== عادي (Normal BGA) ===
+Company: Samsung (سامسونج) - Code prefix: KM (first 2 letters = company ID)
+Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
+Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
+RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D or 4=4GB | C or J=6-8GB
+
+Company: SK Hynix (هاينكس) - Code prefix: H9 (first 2 letters = company ID)
+Storage location: LINE 2 - the digits after the first 4 characters
+Storage codes: 17/18/19=16G | 26/27=32G | 52/53=64G | 16=128G
+RAM codes: A4=0.5GB | A8=1GB | AB=2GB | AD=3GB | AC=4GB | AE=6GB
+
+Company: Kingston (كينجستون) - Origin: TAIWAN
+Storage location: LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
+
+Company: SanDisk (سان ديسك) - Code prefix: SDIN - Origin: TAIWAN
+Storage location: LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+
+=== زجاجي (eMMC/UFS) ===
+Company: Samsung (سامسونج زجاجي) - Code prefix: KLM or KLU (first 3 letters = company ID)
+Storage location: LINE 3 - the 5th character pair indicates storage
+Storage codes: AG=16G | BG=32G | CG=64G | DG=128G | EG=256G | FG=512G
+
+Company: SK Hynix (هاينكس زجاجي) - Code prefix: H26 or H28 or HN8
+Storage location: LINE 1 - digits in the code
+Storage codes: 54=16G | 64=32G | 74=64G | 88=128G | 9=256G
+
+Company: Toshiba (توشيبا) - Code prefix: THG - Origin: TAIWAN/JAPAN
+Storage location: LINE 3
+Storage codes: G7=16G | G8=32G | G9=64G | T0=128G | T1=256G | T2=512G
+
+Company: SanDisk (سان ديسك زجاجي) - Code prefix: SDIN - Origin: CHINA
+Storage location: LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+
+Company: Micron (ميكرون) - Code prefix: JW or JZ
+Storage: full code lookup from table - no abbreviations
+
+Company: YMEC (يمك) - Code prefix: YMEC
+Storage location: bottom-left of chip - digit after YMEC
+Storage codes: YMEC6=32G | YMEC7=64G | YMEC8=128G | YMEC9=256G
+
+Company: UNIC (يونيك) - Code prefix: 08EMCP or 16EMCP
+Storage location: last line
+Storage codes: 05G=32G | 06G=64G | 07G=128G
+
+Company: Kingston (كينجستون زجاجي) - Origin: CHINA
+Storage location: LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
+
+عينك تكون في الكاميرا ولسانك في الشات
+إذا تم العثور على معلومات واضحة في الصورة، يقوم النظام بالرد عبر الدردشة بالنتائج المستخلصة (مثال: "النص المكتوب على IC الذاكرة هو: XYZ123").
+إذا لم يتم العثور على معلومات واضحة أو كانت غير مكتملة، يقوم النظام بالإبلاغ عن ذلك (مثال: "لم أتمكن من قراءة النص بوضوح من الصورة.").
+إعادة تحليل منطقة محددة (اختياري): يمكن للمستخدم طلب إعادة تحليل منطقة محددة في الصورة للحصول على دقة أعلى.
+واوصف دايما انت شايف ايه
+
+لما تصنف كود، قول عرفت منين
+لو المستخدم بيعلمك حاجة جديدة، قوله "تم الحفظ ✅"
+لو مش عارف كود، قوله بصراحة وساعده
+طبّق القواعد المخصصة واختصارات المدرب - دي أعلى أولوية
+لو المدرب بيعلمك اختصار، رد بـ [SHORTCUT]{"prefix":"الحروف","storage":"المساحة","type":"عادي أو زجاجي","company":"الشركة"}[/SHORTCUT]
+
+لو بيعلمك معلومة جديدة:
+[TRAIN]{"code":"الكود","storage":"المساحة","type":"النوع"}[/TRAIN]`;
+
+// buildSinglePrompt - يستخدم البرومنت الموحد + الخبرة المتراكمة + JSON format
+function buildSinglePrompt() {
+    const expertKnowledge = buildExpertKnowledge();
+    return `${UNIFIED_PROMPT}
+
+${expertKnowledge}
+Return JSON ONLY:
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"which line/rule you used e.g. Samsung KM line3 letter X before 800=32G"}
+If you can see a chip but can only read partial text (even 1-2 chars): {"code":"WHAT_YOU_SEE","storage":"","type":"","company":"","ram":null,"reason":"what I can see on chip"}
+If no memory chip found: {"code":"NOT_FOUND","reason":"why"}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
 // Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
 // ═══════════════════════════════════════════════════════════════
@@ -755,56 +850,16 @@ app.post('/api/analyze', async (req, res) => {
 
         // ═══════════════════════════════════════════════════════
         // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
-        // بناء البرومبت ديناميكياً من الجداول الفعلية
+        // نفس البرومبت الموحد للمسار الأصلي وعين Gemini
         // ═══════════════════════════════════════════════════════
-        
-        // بناء ملخص الجداول الفعلية
-        let dbRef = '== KNOWN CODES DATABASE ==\n\nعادي (BGA):\n';
-        for (const [cap, codes] of Object.entries(NORMAL_DB)) {
-            dbRef += cap + ': ' + codes.slice(0, 8).join(', ') + (codes.length > 8 ? ' ... (+' + (codes.length - 8) + ')' : '') + '\n';
-        }
-        dbRef += '\nزجاجي (eMMC/UFS):\n';
-        for (const [size, codes] of Object.entries(EMMC_DB)) {
-            dbRef += size + 'GB: ' + codes.slice(0, 8).join(', ') + (codes.length > 8 ? ' ... (+' + (codes.length - 8) + ')' : '') + '\n';
-        }
-        dbRef += '\nMicron (زجاجي):\n';
-        for (const [size, codes] of Object.entries(MICRON_DB)) {
-            dbRef += size + 'GB: ' + codes.join(', ') + '\n';
-        }
-
-        const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
-
-STEP 1 - READ: Find the memory chip (large black chip) and read its code.
-Memory chips start with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP
-IGNORE: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (processor) + PM/WCD/WCN (power)
-Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
-
-STEP 2 - CLASSIFY: First check against this database. If the code matches or is very close to one listed, use that classification:
-
-${dbRef}
-
-If not found in database, use these shortcut rules:
-Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
-  RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
-Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
-Samsung KLU (زجاجي UFS): char 5 → 4=4|8=8|A=16|B=32|C=64|D=128|E=256|F=512|G=1TB
-SK Hynix H9 (عادي): digits 5-6 → 17/18=16|26/27=32|52/53=64|16=128|21/22=256
-  RAM: A4=0.5|A8=1|AB=2|AD=3|AC=4|AE=6
-SK Hynix H26 (زجاجي eMMC) | H28 (زجاجي UFS)
-Toshiba THG (زجاجي): chars 7-8 → G7=16|G8=32|G9=64|T0=128|T1=256|T2=512
-YMEC (زجاجي): char after YMEC/TY prefix → 6/G=32|7=64|8/B=128|9=256
-UNIC (زجاجي): 08EMCP=8|16EMCP=16 + 05G=32|06G=64|07G=128
-Micron JW/JZ (زجاجي)
-
-Return JSON ONLY:
-{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null"}
-If no memory chip found: {"code":"NOT_FOUND"}`;
+        const singlePrompt = buildSinglePrompt();
 
         let rawCode = '';
         let geminiStorage = '';
         let geminiType = '';
         let geminiCompany = '';
         let geminiRam = null;
+        let geminiReason = '';
 
         try {
             const geminiResult = await model.generateContent({
@@ -831,6 +886,7 @@ If no memory chip found: {"code":"NOT_FOUND"}`;
                 geminiType = parsed.type || '';
                 geminiCompany = parsed.company || '';
                 geminiRam = parsed.ram || null;
+                geminiReason = parsed.reason || '';
             }
         } catch (geminiErr) {
             console.error('Gemini Single-Pass فشل:', geminiErr.message);
@@ -972,7 +1028,8 @@ Return JSON only:
                 code: rawCode, storage: finalStorage, type: geminiType,
                 company: geminiCompany || detectCompany(rawCode),
                 ram: geminiRam || extractRam(rawCode),
-                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65
+                step: 'gemini_direct', confidence: correctedStorage ? 75 : 65,
+                reason: geminiReason || ''
             };
             if (correctedStorage) {
                 geminiDirect.suggestion = 'Gemini قال ' + geminiStorage + ' بس اتصحح لـ ' + correctedStorage + ' من أخطاء سابقة';
@@ -1018,6 +1075,69 @@ Return JSON only:
             errMsg = 'خطأ: ' + (error.message || 'جرب تاني').substring(0, 100);
         }
         res.status(500).json({ error: errMsg, step, confidence: 0 });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// /api/gemini-race - عين Gemini المستقلة (تصنيف بالصورة بس)
+// بتشتغل بالتوازي مع المسار الأصلي عشان نقارن الدقة
+// نفس البرومبت بالظبط - مقارنة عادلة
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/gemini-race', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: 'No image', code: '', storage: '', type: '' });
+
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+        // نفس البرومبت بالظبط الي في /api/analyze
+        const racePrompt = buildSinglePrompt();
+
+        const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+        const result = await model.generateContent({
+            contents: [{ parts: [
+                { inlineData: { mimeType: 'image/jpeg', data: rawBase64 } },
+                { text: racePrompt }
+            ]}],
+            generationConfig: { temperature: 0 }
+        });
+
+        let text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        console.log('👁️ Gemini Race:', text);
+
+        let parsed = null;
+        try {
+            parsed = JSON.parse(text);
+        } catch(e1) {
+            const jsonMatch = text.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
+            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        }
+
+        if (parsed && parsed.code && parsed.code !== 'NOT_FOUND') {
+            parsed.code = cleanReadCode(parsed.code);
+            if (!parsed.ram) parsed.ram = extractRam(parsed.code);
+            if (!parsed.company) parsed.company = detectCompany(parsed.code);
+
+            // Verify against DB for confidence boost
+            const dbCheck = lookupCode(parsed.code, []);
+            if (dbCheck && dbCheck.storage) {
+                parsed.storage = dbCheck.storage;
+                parsed.type = dbCheck.type;
+                parsed.company = dbCheck.company || parsed.company;
+                parsed.confidence = 92;
+                parsed.dbVerified = true;
+            } else {
+                parsed.confidence = parsed.storage && parsed.type ? 70 : 30;
+                parsed.dbVerified = false;
+            }
+
+            return res.json(parsed);
+        }
+
+        return res.json({ code: 'NOT_FOUND', storage: '', type: '', company: '', confidence: 0 });
+    } catch (error) {
+        console.error('Gemini Race error:', error.message);
+        return res.status(500).json({ error: error.message.substring(0, 100), code: '', storage: '', type: '' });
     }
 });
 
@@ -1103,11 +1223,17 @@ function lookupCodeStrict(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات
+    // 2. الجداول والاختصارات المبرمجة
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         dbResult.step = 'db';
         return dbResult;
+    }
+    
+    // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
+    const shortcutResult = searchTrainedShortcuts(cleanCode);
+    if (shortcutResult) {
+        return shortcutResult;
     }
     
     // 3. الأكواد المتعلمة - مطابقة دقيقة
@@ -1191,12 +1317,19 @@ function lookupCode(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات
+    // 2. الجداول والاختصارات المبرمجة
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
         dbResult.step = 'db';
         return dbResult;
+    }
+    
+    // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
+    const shortcutResult = searchTrainedShortcuts(cleanCode);
+    if (shortcutResult) {
+        console.log('🎯 لقيته في اختصارات المدرب:', shortcutResult.suggestion);
+        return shortcutResult;
     }
     
     // 3. الأكواد المتعلمة - مطابقة دقيقة
@@ -1338,9 +1471,37 @@ app.get('/api/cache-count', (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // قواعد مخصصة يعلمها المستخدم للنظام
-const JBIN_RULES_ID = '69c71c29c3097a1dd56a4604'; // bin خاص بالقواعد المخصصة
+const JBIN_RULES_ID = '69c71c29c3097a1dd56a4604'; // bin خاص بالقواعد المخصصة + الاختصارات المُدرَّبة
 let customRules = [];
 // الشكل: [{ rule: "لما تلاقي N11 في كود Kingston يبقى DDR3", addedAt: "2024-..." }]
+
+// ═══════════════════════════════════════════════════════════════
+// نظام الاختصارات المُدرَّبة (Trained Shortcuts) - مسار 2 للدقة
+// يتعلم من المدرب عبر الشات ويُستخدم في التصنيف الفعلي
+// ═══════════════════════════════════════════════════════════════
+let trainedShortcuts = [];
+// الشكل: [{ prefix: "KM5H", company: "Samsung", storage: "64", type: "عادي", ram: "4", note: "...", trainedBy: "trainer", date: "..." }]
+
+// حماية البيانات - PIN المدرب
+const TRAINER_PIN = process.env.TRAINER_PIN || '1234';
+// pending delete operations awaiting PIN confirmation (expire after 60s)
+let pendingDeletes = Object.create(null);
+
+// تنظيف العمليات المعلقة القديمة (أكبر من 60 ثانية)
+function cleanExpiredPendingDeletes() {
+    const now = Date.now();
+    for (const key of Object.keys(pendingDeletes)) {
+        if (now - pendingDeletes[key].time > 60000) {
+            delete pendingDeletes[key];
+        }
+    }
+}
+
+// استخراج base64 raw من data URI
+function extractRawBase64(imageData) {
+    if (!imageData) return '';
+    return imageData.includes(',') ? imageData.split(',')[1] : imageData;
+}
 
 async function loadRulesFromCloud() {
     try {
@@ -1350,10 +1511,12 @@ async function loadRulesFromCloud() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         customRules = (data.record && data.record.rules) ? data.record.rules : [];
-        console.log('📚 تم تحميل القواعد المخصصة:', customRules.length, 'قاعدة');
+        trainedShortcuts = (data.record && data.record.shortcuts) ? data.record.shortcuts : [];
+        console.log('📚 تم تحميل القواعد المخصصة:', customRules.length, 'قاعدة +', trainedShortcuts.length, 'اختصار مُدرَّب');
     } catch (e) {
         console.log('قواعد مخصصة: بدأنا من الصفر -', e.message);
         customRules = [];
+        trainedShortcuts = [];
     }
 }
 
@@ -1363,46 +1526,174 @@ function saveRulesToCloud() {
             await fetch('https://api.jsonbin.io/v3/b/' + JBIN_RULES_ID, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', 'X-Master-Key': JBIN_MASTER },
-                body: JSON.stringify({ rules: customRules })
+                body: JSON.stringify({ rules: customRules, shortcuts: trainedShortcuts })
             });
-            console.log('📚 تم حفظ القواعد المخصصة:', customRules.length);
+            console.log('📚 تم حفظ القواعد:', customRules.length, '+ اختصارات:', trainedShortcuts.length);
         } catch (e) {
             console.error('خطأ حفظ القواعد:', e.message);
         }
     }, 2000);
 }
 
+// إضافة اختصار مُدرَّب جديد
+function addTrainedShortcut(data) {
+    if (!data.prefix || data.prefix.length < 2 || !data.storage) return false;
+    const upper = data.prefix.toUpperCase().trim();
+    // تحديث لو موجود بالفعل (نفس prefix)
+    const existIdx = trainedShortcuts.findIndex(s => s.prefix.toUpperCase() === upper);
+    const entry = {
+        prefix: upper,
+        company: data.company || detectCompany(upper) || 'Unknown',
+        storage: String(data.storage),
+        type: data.type || 'عادي',
+        ram: data.ram || null,
+        note: data.note || '',
+        trainedBy: 'trainer',
+        date: new Date().toISOString()
+    };
+    if (existIdx >= 0) {
+        trainedShortcuts[existIdx] = entry;
+        console.log('🎯 تحديث اختصار مُدرَّب:', upper, '→', entry.storage + 'GB', entry.type);
+    } else {
+        trainedShortcuts.push(entry);
+        console.log('🎯 اختصار مُدرَّب جديد:', upper, '→', entry.storage + 'GB', entry.type);
+    }
+    saveRulesToCloud();
+    return true;
+}
+
+// البحث في الاختصارات المُدرَّبة (أطول prefix match يكسب)
+function searchTrainedShortcuts(code) {
+    if (!code || code.length < 2 || trainedShortcuts.length === 0) return null;
+    const upper = code.toUpperCase().trim();
+    let bestMatch = null;
+    let bestLen = 0;
+    for (const shortcut of trainedShortcuts) {
+        const prefix = shortcut.prefix.toUpperCase();
+        if (upper.startsWith(prefix) && prefix.length > bestLen) {
+            bestMatch = shortcut;
+            bestLen = prefix.length;
+        }
+    }
+    if (bestMatch) {
+        return {
+            code: upper,
+            storage: bestMatch.storage,
+            type: bestMatch.type,
+            company: bestMatch.company || detectCompany(upper),
+            ram: bestMatch.ram || extractRam(upper),
+            step: 'trained_shortcut',
+            confidence: 90,
+            suggestion: 'من اختصار المدرب: ' + bestMatch.prefix + '→' + bestMatch.storage + 'GB'
+        };
+    }
+    return null;
+}
+
+// بناء ملخص الخبرة المتراكمة (للاستخدام في prompts)
+function buildExpertKnowledge() {
+    let knowledge = '';
+    // اختصارات مُدرَّبة (أول 20)
+    if (trainedShortcuts.length > 0) {
+        knowledge += '\nAdditional trained shortcuts from expert:\n';
+        trainedShortcuts.slice(0, 20).forEach(s => {
+            knowledge += '- ' + s.prefix + '... → ' + s.storage + 'GB ' + s.company + ' ' + s.type + (s.ram ? ' RAM:' + s.ram : '') + '\n';
+        });
+    }
+    // قواعد مخصصة (أول 10)
+    if (customRules.length > 0) {
+        knowledge += '\nCustom rules from trainer (ALWAYS apply):\n';
+        customRules.slice(0, 10).forEach(r => {
+            knowledge += '- ' + r.rule + '\n';
+        });
+    }
+    // تحذيرات أخطاء التصنيف (أول 10)
+    const wrongKeys = Object.keys(wrongClassifications);
+    if (wrongKeys.length > 0) {
+        knowledge += '\nWARNING - Known classification mistakes (AVOID repeating):\n';
+        wrongKeys.slice(0, 10).forEach(k => {
+            const w = wrongClassifications[k];
+            knowledge += '- ' + k + ': was wrongly classified as ' + w.wrongStorage + 'GB → correct is ' + w.correctStorage + 'GB\n';
+        });
+    }
+    return knowledge;
+}
+
 loadRulesFromCloud();
 
 // ═══ دالة تحديد نية المستخدم من الرسالة ═══
 function detectIntent(message) {
-    const lower = message.toLowerCase().trim();
-    const arabic = message.trim();
+    // Truncate to prevent ReDoS on long inputs
+    const arabic = message.trim().substring(0, 200);
+    
+    // نية: تأكيد PIN (أرقام فقط - 4 أرقام)
+    if (/^\d{4}$/.test(arabic)) {
+        return 'pin_confirm';
+    }
     
     // نية: عرض المحفوظات
-    if (/(وري|عرض|شوف|ايه ال|كام|عدد).*(محفوظ|متعلم|اتعلم|حفظ|كاش|cache|learned|saved)/i.test(arabic) ||
-        /^(المحفوظات|المتعلمات|الكاش|ورّيني|وريني)$/i.test(arabic.replace(/\s+/g,''))) {
+    if (/محفوظ|متعلم|اتعلم|كاش|cache|learned|saved/i.test(arabic) &&
+        /وري|عرض|شوف|ايه|كام|عدد/i.test(arabic)) {
+        return 'list';
+    }
+    if (/^(المحفوظات|المتعلمات|الكاش|وريني)$/i.test(arabic.replace(/\s+/g,''))) {
         return 'list';
     }
     
     // نية: مسح كود
-    if (/(امسح|شيل|احذف|delete|remove).*(كود|code)/i.test(arabic) ||
-        /^(امسح|شيل|احذف)\s+/i.test(arabic)) {
+    if (/امسح|شيل|احذف|delete|remove/i.test(arabic) && /كود|code/i.test(arabic)) {
+        return 'delete';
+    }
+    if (/^(امسح|شيل|احذف)\s/i.test(arabic)) {
         return 'delete';
     }
     
+    // نية: مسح كل الأنماط/الكاش
+    if (/امسح|شيل|احذف|clear/i.test(arabic) && /كل|جميع|كلها|all|الأنماط|الكاش|patterns/i.test(arabic)) {
+        return 'clear_patterns';
+    }
+    
+    // نية: تعليم اختصار
+    if (/اختصار|shortcut/i.test(arabic) && /يعني|يبقى|معناه|=/i.test(arabic)) {
+        return 'teach_shortcut';
+    }
+    if (/^(علم|ضيف|add)\s+(اختصار|shortcut)/i.test(arabic)) {
+        return 'teach_shortcut';
+    }
+    
+    // نية: عرض الاختصارات
+    if (/اختصار|shortcuts/i.test(arabic) && /وري|عرض|شوف/i.test(arabic)) {
+        return 'list_shortcuts';
+    }
+    if (/^(الاختصارات|shortcuts)$/i.test(arabic.replace(/\s+/g,''))) {
+        return 'list_shortcuts';
+    }
+    
+    // نية: تحليل صورة (عين Gemini)
+    if (/صور|شريح|image|photo/i.test(arabic) && /حلل|شوف|بص|اقرأ|اقرا/i.test(arabic)) {
+        return 'analyze_image';
+    }
+    if (/وريه الصور/i.test(arabic)) {
+        return 'analyze_image';
+    }
+    
     // نية: تعليم قاعدة
-    if (/(لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة|الاختصار.*يعني|يعني.*اختصار)/i.test(arabic)) {
+    if (/لما تلاقي|لو لقيت|القاعدة|اعرف ان|خلي بالك|تعلم ان|اتعلم ان|لو شفت|لما تشوف|في حالة/i.test(arabic)) {
         return 'teach_rule';
     }
     
     // نية: سؤال عن مصدر الأخطاء
-    if (/(ليه غلط|منين الغلط|مصدر الخطأ|الخطأ جه|ايه سبب|ليه اتغلط|الأخطاء|سجل الأخطاء|error)/i.test(arabic)) {
+    if (/ليه غلط|منين الغلط|مصدر الخطأ|ايه سبب|الأخطاء|سجل الأخطاء|error/i.test(arabic)) {
         return 'error_source';
     }
     
+    // نية: سؤال عن مصدر الإجابة (منين عرفت؟)
+    if (/منين عرفت|الاجابه دي منين|الاجابة دي منين|عرفت منين|ازاي عرفت|طلعت منين|جبت منين|المصدر|منين الكلام|من فين/i.test(arabic)) {
+        return 'explain_source';
+    }
+    
     // نية: عرض القواعد
-    if (/(القواعد|وري.*قواعد|عرض.*قواعد|rules)/i.test(arabic)) {
+    if (/القواعد|rules/i.test(arabic)) {
         return 'list_rules';
     }
     
@@ -1443,6 +1734,12 @@ function findCodeEverywhere(code, learnedCodes) {
         return { ...dbResult, source: 'db', sourceText: '📊 من الجدول - لقيته في قاعدة البيانات' };
     }
     
+    // 3.5 اختصارات المدرب
+    const shortcutResult = searchTrainedShortcuts(code);
+    if (shortcutResult) {
+        return { ...shortcutResult, source: 'trained_shortcut', sourceText: '🎯 من اختصار المدرب - ' + shortcutResult.suggestion };
+    }
+    
     // 4. الأكواد المتعلمة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1479,11 +1776,61 @@ function findCodeEverywhere(code, learnedCodes) {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, context, history, learnedCodes } = req.body;
+        const { message, context, history, learnedCodes, lastImage } = req.body;
         if (!message) return res.status(400).json({ error: "No message" });
 
         const intent = detectIntent(message);
         console.log('💬 شات - نية:', intent, '- رسالة:', message.substring(0, 80));
+
+        // ═══ نية: تأكيد PIN (للحذف المحمي) ═══
+        if (intent === 'pin_confirm') {
+            cleanExpiredPendingDeletes();
+            const pin = message.trim();
+            // دور على أي pending delete لنفس الجلسة
+            const pendingKeys = Object.keys(pendingDeletes);
+            if (pendingKeys.length === 0) {
+                return res.json({ reply: '❓ مفيش عملية حذف منتظرة PIN', source: 'system', action: 'no_pending' });
+            }
+            const lastPending = pendingKeys[pendingKeys.length - 1];
+            const pending = pendingDeletes[lastPending];
+            if (pin === TRAINER_PIN) {
+                // PIN صح - نفذ الحذف
+                let deleted = false;
+                let deletedFrom = [];
+                const codeToDelete = pending.code;
+                if (pending.action === 'delete_code') {
+                    if (resultCache[codeToDelete]) {
+                        delete resultCache[codeToDelete];
+                        saveCache();
+                        deleted = true;
+                        deletedFrom.push('الكاش');
+                    }
+                    const prefix = codeToDelete.substring(0, Math.min(10, codeToDelete.length));
+                    if (learnedPatterns[prefix]) {
+                        delete learnedPatterns[prefix];
+                        savePatternsToCloud();
+                        deleted = true;
+                        deletedFrom.push('الأنماط المتعلمة');
+                    }
+                } else if (pending.action === 'clear_all') {
+                    // مسح كل الأنماط
+                    const patCount = Object.keys(learnedPatterns).length;
+                    Object.keys(learnedPatterns).forEach(k => delete learnedPatterns[k]);
+                    savePatternsToCloud();
+                    deleted = true;
+                    deletedFrom.push('كل الأنماط (' + patCount + ')');
+                }
+                delete pendingDeletes[lastPending];
+                if (deleted) {
+                    return res.json({ reply: '🔓✅ PIN صح - تم مسح ' + (pending.code || 'الأنماط') + ' من: ' + deletedFrom.join(' + '), source: 'system', action: 'deleted', deletedCode: pending.code });
+                } else {
+                    return res.json({ reply: '❓ ' + (pending.code || '') + ' مش موجود', source: 'system', action: 'not_found' });
+                }
+            } else {
+                delete pendingDeletes[lastPending];
+                return res.json({ reply: '🔒❌ PIN غلط - العملية اترفضت', source: 'system', action: 'pin_rejected' });
+            }
+        }
 
         // ═══ نية: عرض المحفوظات ═══
         if (intent === 'list') {
@@ -1491,12 +1838,14 @@ app.post('/api/chat', async (req, res) => {
             const patternCount = Object.keys(learnedPatterns).length;
             const learnedCount = (learnedCodes && learnedCodes.length) || 0;
             const rulesCount = customRules.length;
+            const shortcutsCount = trainedShortcuts.length;
             
             let reply = '📋 المحفوظات عندي:\n\n';
             reply += '📦 كاش النتائج: ' + cacheCount + ' كود\n';
             reply += '🧠 أكواد متعلمة (من التدريب): ' + learnedCount + ' كود\n';
             reply += '🔄 أنماط متعلمة (من التصويت): ' + patternCount + ' نمط\n';
-            reply += '📚 قواعد مخصصة: ' + rulesCount + ' قاعدة\n\n';
+            reply += '📚 قواعد مخصصة: ' + rulesCount + ' قاعدة\n';
+            reply += '🎯 اختصارات المدرب: ' + shortcutsCount + ' اختصار\n\n';
             
             // عرض آخر 10 أكواد من الكاش
             const cacheKeys = Object.keys(resultCache).slice(-10);
@@ -1519,13 +1868,13 @@ app.post('/api/chat', async (req, res) => {
             return res.json({ reply, source: 'system', action: 'list' });
         }
 
-        // ═══ نية: مسح كود ═══
+        // ═══ نية: مسح كود (محمي بـ PIN) ═══
         if (intent === 'delete') {
             // استخراج الكود من الرسالة
             const words = message.trim().split(/\s+/);
             let codeToDelete = null;
             for (const w of words) {
-                const clean = w.replace(/[.,;:!?]+$/g, '').trim();
+                const clean = w.replace(/[.,;:!?]{1,5}$/g, '').trim();
                 if (clean.length >= 4 && /[A-Z0-9]/i.test(clean)) {
                     // تجاهل الكلمات العربية
                     if (!/^[\u0600-\u06FF]+$/.test(clean)) {
@@ -1538,33 +1887,118 @@ app.post('/api/chat', async (req, res) => {
                 return res.json({ reply: '❓ قولي الكود الي عايز تمسحه - مثلاً: "امسح الكود KVR16N11"', source: 'system', action: 'delete_ask' });
             }
             
-            let deleted = false;
-            let deletedFrom = [];
+            // حفظ العملية المعلقة وطلب PIN
+            const pendingKey = 'del_' + Date.now();
+            pendingDeletes[pendingKey] = { code: codeToDelete, action: 'delete_code', time: Date.now() };
+            return res.json({
+                reply: '🔒 عملية حذف ' + codeToDelete + '\n⚠️ اكتب PIN المدرب (4 أرقام) للتأكيد:',
+                source: 'system', action: 'pin_required'
+            });
+        }
+
+        // ═══ نية: مسح كل الأنماط (محمي بـ PIN) ═══
+        if (intent === 'clear_patterns') {
+            const pendingKey = 'clear_' + Date.now();
+            pendingDeletes[pendingKey] = { code: null, action: 'clear_all', time: Date.now() };
+            return res.json({
+                reply: '🔒 عملية مسح كل الأنماط المتعلمة (' + Object.keys(learnedPatterns).length + ' نمط)\n⚠️ اكتب PIN المدرب (4 أرقام) للتأكيد:',
+                source: 'system', action: 'pin_required'
+            });
+        }
+
+        // ═══ نية: تعليم اختصار جديد ═══
+        if (intent === 'teach_shortcut') {
+            // استخراج: "الاختصار KM5H يعني 64 سامسونج عادي"
+            const codeMatch = message.match(/([A-Z0-9]{2,})/i);
+            const sizeMatch = message.match(/(\d+)\s*(جيجا|GB|gb|G|g)?/i);
             
-            // مسح من الكاش
-            if (resultCache[codeToDelete]) {
-                delete resultCache[codeToDelete];
-                saveCache();
-                deleted = true;
-                deletedFrom.push('الكاش');
-            }
-            
-            // مسح من الأنماط المتعلمة
-            const prefix = codeToDelete.substring(0, Math.min(10, codeToDelete.length));
-            if (learnedPatterns[prefix]) {
-                delete learnedPatterns[prefix];
-                savePatternsToCloud();
-                deleted = true;
-                deletedFrom.push('الأنماط المتعلمة');
-            }
-            
-            if (deleted) {
+            if (!codeMatch || !sizeMatch) {
                 return res.json({
-                    reply: '🗑️ تم مسح ' + codeToDelete + ' من: ' + deletedFrom.join(' + ') + '\n✅ تم الحفظ على السحابة',
-                    source: 'system', action: 'deleted', deletedCode: codeToDelete
+                    reply: '❓ مفهمتش الاختصار - قولي بالشكل ده:\n"الاختصار KM5H يعني 64 سامسونج عادي"\nأو: "اختصار JZ1 يبقى 128 زجاجي"',
+                    source: 'system', action: 'teach_shortcut_ask'
+                });
+            }
+            
+            const isGlass = /زجاجي|glass|emmc|ufs/i.test(message);
+            const companyMatch = message.match(/(سامسونج|samsung|هاينكس|hynix|توشيبا|toshiba|سانديسك|sandisk|ميكرون|micron|ymec|unic)/i);
+            let company = '';
+            if (companyMatch) {
+                const c = companyMatch[1].toLowerCase();
+                if (c.includes('سامسونج') || c.includes('samsung')) company = 'Samsung';
+                else if (c.includes('هاينكس') || c.includes('hynix')) company = 'SK Hynix';
+                else if (c.includes('توشيبا') || c.includes('toshiba')) company = 'Toshiba';
+                else if (c.includes('سانديسك') || c.includes('sandisk')) company = 'SanDisk';
+                else if (c.includes('ميكرون') || c.includes('micron')) company = 'Micron';
+                else company = companyMatch[1];
+            }
+            
+            // استخراج الرام لو موجود (fixed non-backtracking regex)
+            const ramMatch = message.match(/ram\s{0,3}[:=]?\s{0,3}(\d+)/i) || message.match(/رام\s{0,3}[:=]?\s{0,3}(\d+)/i);
+            
+            const success = addTrainedShortcut({
+                prefix: codeMatch[1].toUpperCase(),
+                storage: sizeMatch[1],
+                type: isGlass ? 'زجاجي' : 'عادي',
+                company: company,
+                ram: ramMatch ? ramMatch[1] : null,
+                note: message.trim().substring(0, 100)
+            });
+            
+            if (success) {
+                return res.json({
+                    reply: '🎯 تم حفظ الاختصار! ✅\n' + codeMatch[1].toUpperCase() + ' → ' + sizeMatch[1] + 'GB ' + (isGlass ? 'زجاجي' : 'عادي') + (company ? ' ' + company : '') + '\n\n✅ تم الحفظ على السحابة\nعدد الاختصارات: ' + trainedShortcuts.length,
+                    source: 'system', action: 'shortcut_saved'
                 });
             } else {
-                return res.json({ reply: '❓ الكود ' + codeToDelete + ' مش موجود في الكاش أو الأنماط المتعلمة.\nلو عايز تمسحه من الأكواد المتعلمة، امسحه من الواجهة.', source: 'system', action: 'not_found' });
+                return res.json({ reply: '❌ مقدرتش أحفظ - تأكد إن الكود أكبر من حرفين والمساحة رقم', source: 'system', action: 'error' });
+            }
+        }
+
+        // ═══ نية: عرض الاختصارات ═══
+        if (intent === 'list_shortcuts') {
+            if (trainedShortcuts.length === 0) {
+                return res.json({
+                    reply: '🎯 مفيش اختصارات مُدرَّبة لحد دلوقتي.\nعلمني اختصار جديد - مثلاً: "الاختصار KM5H يعني 64 سامسونج عادي"',
+                    source: 'system', action: 'list_shortcuts'
+                });
+            }
+            let reply = '🎯 اختصارات المدرب (' + trainedShortcuts.length + ' اختصار):\n\n';
+            trainedShortcuts.forEach((s, i) => {
+                reply += (i + 1) + '. ' + s.prefix + ' → ' + s.storage + 'GB ' + s.type + (s.company ? ' (' + s.company + ')' : '') + (s.ram ? ' RAM:' + s.ram : '') + '\n';
+            });
+            return res.json({ reply, source: 'system', action: 'list_shortcuts' });
+        }
+
+        // ═══ نية: تحليل صورة (عين Gemini) ═══
+        if (intent === 'analyze_image') {
+            if (!lastImage) {
+                return res.json({
+                    reply: '📷 مفيش صورة متاحة دلوقتي.\nصوّر الشريحة الأول وبعدين قولي "شوف الصورة" أو "حلل الصورة دي"',
+                    source: 'system', action: 'no_image'
+                });
+            }
+            // ابعت الصورة لـ Gemini للتحليل
+            try {
+                const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+                const imagePrompt = `${UNIFIED_PROMPT}
+
+${buildExpertKnowledge()}
+
+رد بالمصري بوضوح.`;
+                
+                const rawBase64 = extractRawBase64(lastImage);
+                const imgResult = await model.generateContent({
+                    contents: [{ parts: [
+                        { inlineData: { data: rawBase64, mimeType: 'image/jpeg' } },
+                        { text: imagePrompt }
+                    ]}],
+                    generationConfig: { temperature: 0.3, maxOutputTokens: 600 }
+                });
+                const imgReply = imgResult.response.text().trim();
+                return res.json({ reply: '👁️ شايف الصورة:\n\n' + imgReply, source: 'gemini_vision', action: 'image_analyzed' });
+            } catch (imgErr) {
+                console.error('عين Gemini فشلت:', imgErr.message);
+                return res.json({ reply: '⚠️ مقدرتش أحلل الصورة - ' + imgErr.message.substring(0, 60), source: 'error', action: 'error' });
             }
         }
 
@@ -1628,6 +2062,68 @@ app.post('/api/chat', async (req, res) => {
             return res.json({ reply, source: 'system', action: 'error_analysis' });
         }
 
+        // ═══ نية: شرح مصدر الإجابة (منين عرفت) ═══
+        if (intent === 'explain_source') {
+            // خد آخر كود من السياق
+            const lastCode = context && context.code ? context.code : null;
+            if (!lastCode) {
+                return res.json({ reply: '❓ مفيش نتيجة سابقة أشرحلك منين جيتها.\nصور شريحة الأول أو ابعتلي كود أحلله.', source: 'system', action: 'no_context' });
+            }
+            
+            // دور على الكود في كل المصادر
+            const sourceResult = findCodeEverywhere(lastCode, learnedCodes);
+            
+            if (sourceResult) {
+                // شرح تفصيلي بناءً على المصدر
+                let explanation = '🔍 آخر كود: ' + lastCode + '\n\n';
+                const stepMap = {
+                    'cache': '📦 الكاش - النتيجة دي محفوظة من تحليل سابق',
+                    'correction': '🧠 تصحيح المدرب - أنت علمتني الكود ده قبل كده وصححتلي',
+                    'db': '📊 الجدول الأساسي - لقيته في قاعدة البيانات (NORMAL_DB أو EMMC_DB أو MICRON_DB)',
+                    'trained_shortcut': '🎯 اختصار المدرب - أنت علمتني اختصار بيبدأ بالحروف دي',
+                    'learned': '🧠 متعلم - دي حاجة اتعلمتها من تدريب سابق',
+                    'pattern': '🔄 نمط متعلم - لقيت نمط شبهه اتعلمته قبل كده'
+                };
+                explanation += '📌 المصدر: ' + (stepMap[sourceResult.source] || sourceResult.sourceText || 'تحليلي') + '\n';
+                explanation += '📋 النتيجة: ' + (sourceResult.storage || '?') + 'GB ' + (sourceResult.type || '?');
+                if (sourceResult.ram) explanation += ' | RAM ' + sourceResult.ram + 'GB';
+                if (sourceResult.company) explanation += ' | ' + sourceResult.company;
+                explanation += '\n\n';
+                
+                // شرح إضافي عن القاعدة المستخدمة
+                const company = (sourceResult.company || detectCompany(lastCode) || '').toLowerCase();
+                if (company.includes('samsung') && lastCode.startsWith('KM')) {
+                    explanation += '📖 القاعدة: Samsung KM (عادي) - السطر 3 - الحرف قبل 100/200/600/700/800/900\nN=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256';
+                } else if (company.includes('samsung') && (lastCode.startsWith('KLM') || lastCode.startsWith('KLU'))) {
+                    explanation += '📖 القاعدة: Samsung KLM/KLU (زجاجي) - السطر 3\nAG=16|BG=32|CG=64|DG=128|EG=256|FG=512';
+                } else if (company.includes('hynix') && lastCode.startsWith('H9')) {
+                    explanation += '📖 القاعدة: SK Hynix H9 (عادي) - السطر 2 - الرقم بعد أول 4 حروف\n17/18/19=16|26/27=32|52/53=64|16=128';
+                } else if (company.includes('hynix') && (lastCode.startsWith('H26') || lastCode.startsWith('H28') || lastCode.startsWith('HN8'))) {
+                    explanation += '📖 القاعدة: SK Hynix H26/H28/HN8 (زجاجي) - السطر 1\n54=16|64=32|74=64|88=128|9=256';
+                } else if (company.includes('toshiba') || lastCode.startsWith('THG')) {
+                    explanation += '📖 القاعدة: Toshiba THG (زجاجي) - السطر 3\nG7=16|G8=32|G9=64|T0=128|T1=256|T2=512';
+                } else if (lastCode.startsWith('YMEC') || lastCode.startsWith('TY')) {
+                    explanation += '📖 القاعدة: YMEC (زجاجي) - أسفل يسار\n6=32|7=64|8=128|9=256';
+                } else if (lastCode.includes('UNIC') || lastCode.includes('EMCP')) {
+                    explanation += '📖 القاعدة: UNIC (زجاجي) - آخر سطر\n05G=32|06G=64|07G=128';
+                } else if (company.includes('micron') || lastCode.startsWith('JW') || lastCode.startsWith('JZ')) {
+                    explanation += '📖 القاعدة: Micron JW/JZ (زجاجي) - الكود كامل من الجدول';
+                } else if (company.includes('sandisk') || lastCode.startsWith('SDIN')) {
+                    explanation += '📖 القاعدة: SanDisk SDIN - المساحة مكتوبة صريحة في الكود';
+                }
+                
+                explanation += '\n\nلو النتيجة غلط، قولي الصح وأنا هتعلم! 🎓';
+                return res.json({ reply: explanation, source: 'system', action: 'explain_source' });
+            } else {
+                // الكود مش موجود في أي مصدر محلي - يبقى Gemini هو اللي صنفه
+                let explanation = '🔍 آخر كود: ' + lastCode + '\n\n';
+                explanation += '📌 المصدر: 🤖 Gemini AI - مالقتوش في الجداول ولا الاختصارات، فـ Gemini حلله بالذكاء الاصطناعي';
+                if (context.storage) explanation += '\n📋 النتيجة: ' + context.storage + 'GB ' + (context.type || '?');
+                explanation += '\n\n⚠️ تصنيف Gemini بيكون أقل دقة من الجداول. لو غلط قولي الصح!';
+                return res.json({ reply: explanation, source: 'system', action: 'explain_source' });
+            }
+        }
+
         // ═══ نية: عرض القواعد ═══
         if (intent === 'list_rules') {
             if (customRules.length === 0) {
@@ -1645,7 +2141,7 @@ app.post('/api/chat', async (req, res) => {
         const mentionedWords = message.trim().split(/\s+/);
         let foundCode = null;
         for (const w of mentionedWords) {
-            const clean = w.replace(/[.,;:!?]+$/g, '').trim();
+            const clean = w.replace(/[.,;:!?]{1,5}$/g, '').trim();
             if (clean.length >= 4 && /[A-Z0-9]/i.test(clean) && !/^[\u0600-\u06FF]+$/.test(clean)) {
                 const result = findCodeEverywhere(clean, learnedCodes);
                 if (result) {
@@ -1711,6 +2207,15 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // اختصارات المدرب
+        let shortcutsInfo = '';
+        if (trainedShortcuts.length > 0) {
+            shortcutsInfo = '\n🎯 اختصارات المدرب (' + trainedShortcuts.length + ' اختصار):\n';
+            trainedShortcuts.slice(0, 20).forEach(s => {
+                shortcutsInfo += '- ' + s.prefix + ' → ' + s.storage + 'GB ' + s.type + (s.company ? ' ' + s.company : '') + '\n';
+            });
+        }
+
         let historyText = '';
         if (history && history.length > 0) {
             historyText = '\nتاريخ المحادثة:\n';
@@ -1719,36 +2224,32 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
-        const chatPrompt = `أنت مساعد ذكي متخصص في شرائح الذاكرة (Memory IC chips) للهواتف.
-اسمك "مساعد البحراوي" وبتتكلم مصري.
+        const chatPrompt = `${UNIFIED_PROMPT}
+اسمك "مساعد البحراوي". المدرب (الخبير) بيعلمك وأنت بتحفظ كل حاجة. أنت نسخة منه - بتتعلم منه وبتطبق اللي علمهولك.
 
-معلومات عنك:
-- بتساعد في تصنيف شرائح الذاكرة (عادي BGA / زجاجي EMMC)
-- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC
-- العادي = BGA (بيتلحم على البورد)
-- الزجاجي = EMMC (بيتركب في سوكيت)
+${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
-${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}
+${buildExpertKnowledge()}
 
-مهم جداً:
-1. لما تصنف كود، قول عرفت منين (من الجدول / من الاختصار / من تصحيح المستخدم / تحليلي)
-2. لو المستخدم بيعلمك حاجة جديدة (قاعدة أو معلومة)، قوله "تم الحفظ ✅" وأكد إنك فهمت
-3. لو المستخدم بيسأل عن كود مش عارفه، قوله بصراحة وساعده
-4. طبّق القواعد المخصصة دايماً
-
-لو المستخدم بيعلمك معلومة جديدة عن كود أو قاعدة، رد بـ JSON في آخر ردك بالشكل ده:
-[TRAIN]{"code":"الكود","storage":"المساحة","type":"عادي أو زجاجي"}[/TRAIN]
 أو لو قاعدة عامة:
 [RULE]{"rule":"القاعدة"}[/RULE]
 
 ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || 'مفيش') + '\n- آخر نتيجة: ' + (context.storage || '?') + 'GB ' + (context.type || '?') + '\n- الشركة: ' + (context.company || '?') : ''}${historyText}
 
 رسالة المستخدم: "${message}"
+${lastImage ? '\n📷 المستخدم بعتلك صورة كمان - لو سألك عنها حللها' : ''}
 
 رد بإيجاز ووضوح بالمصري. لو سأل عن حاجة مش ليها علاقة بالذاكرة، رد عليه بلطف وارجعه للموضوع.`;
 
+        // بناء الـ parts: نص + صورة لو موجودة
+        const parts = [{ text: chatPrompt }];
+        if (lastImage) {
+            const rawBase64 = extractRawBase64(lastImage);
+            parts.unshift({ inlineData: { data: rawBase64, mimeType: 'image/jpeg' } });
+        }
+
         const result = await model.generateContent({
-            contents: [{ parts: [{ text: chatPrompt }] }],
+            contents: [{ parts }],
             generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
         });
 
@@ -1790,6 +2291,23 @@ ${context ? 'السياق الحالي:\n- آخر كود: ' + (context.code || '
             reply = reply.replace(/\[RULE\].*?\[\/RULE\]/s, '').trim();
             if (!reply.includes('تم الحفظ') && !reply.includes('✅')) {
                 reply += '\n\n📚 تم حفظ القاعدة على السحابة ✅';
+            }
+        }
+
+        // استخراج اختصارات من رد Gemini
+        const shortcutMatch = reply.match(/\[SHORTCUT\](.*?)\[\/SHORTCUT\]/s);
+        if (shortcutMatch) {
+            try {
+                const scData = JSON.parse(shortcutMatch[1]);
+                if (scData.prefix && scData.storage) {
+                    addTrainedShortcut(scData);
+                    action = 'shortcut_saved';
+                    console.log('🎯 شات: اختصار جديد -', scData.prefix, '=', scData.storage + 'GB');
+                }
+            } catch (e) { /* تجاهل */ }
+            reply = reply.replace(/\[SHORTCUT\].*?\[\/SHORTCUT\]/s, '').trim();
+            if (!reply.includes('تم الحفظ') && !reply.includes('✅')) {
+                reply += '\n\n🎯 تم حفظ الاختصار على السحابة ✅';
             }
         }
 
@@ -1899,6 +2417,42 @@ app.get('/{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+if (require.main === module) {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Module exports for testing
+// ═══════════════════════════════════════════════════════════════
+module.exports = {
+    app,
+    extractRam,
+    searchInDB,
+    detectCompany,
+    isValidMemoryCode,
+    looksLikeMemoryCode,
+    fuzzySearchInDB,
+    cleanReadCode,
+    getCandidatesForCode,
+    applyErrorMemoryFixes,
+    checkWrongClassification,
+    learnOCRError,
+    learnWrongClassification,
+    learnPattern,
+    lookupCode,
+    lookupCodeStrict,
+    getCached,
+    getCachedStrict,
+    setCache,
+    NORMAL_DB,
+    EMMC_DB,
+    MICRON_DB,
+    SAMSUNG_RAM_MAP,
+    HYNIX_RAM_MAP,
+    errorMemory,
+    wrongClassifications,
+    learnedPatterns,
+    resultCache
+};
