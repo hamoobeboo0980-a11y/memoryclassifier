@@ -1815,7 +1815,7 @@ app.post('/api/vision-ocr', async (req, res) => {
             // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
             if (!GEMINI_KEY) {
                 console.log('⚠️ Neither GOOGLE_VISION_KEY nor GEMINI_KEY set - OCR unavailable');
-                return res.json({ text: '', source: 'none', error: 'No OCR keys configured' });
+                return res.json({ text: '', source: 'none', error: 'قراءة الصور مش متاحة - حط GEMINI_KEY أو GOOGLE_VISION_KEY في متغيرات البيئة' });
             }
             console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
             const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
