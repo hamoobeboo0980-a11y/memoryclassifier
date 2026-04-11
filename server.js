@@ -7,6 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY || "AIzaSyAbHZibxNq1bPUVHxW8aa8GvPAsMgCyzgQ");
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -685,11 +686,27 @@ app.post('/api/analyze', async (req, res) => {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // ═══════════════════════════════════════════════════════
         // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
+        // بناء البرومبت ديناميكياً من الجداول الفعلية
         // ═══════════════════════════════════════════════════════
+        
+        // بناء ملخص الجداول الفعلية
+        let dbRef = '== KNOWN CODES DATABASE ==\n\nعادي (BGA):\n';
+        for (const [cap, codes] of Object.entries(NORMAL_DB)) {
+            dbRef += cap + ': ' + codes.slice(0, 8).join(', ') + (codes.length > 8 ? ' ... (+' + (codes.length - 8) + ')' : '') + '\n';
+        }
+        dbRef += '\nزجاجي (eMMC/UFS):\n';
+        for (const [size, codes] of Object.entries(EMMC_DB)) {
+            dbRef += size + 'GB: ' + codes.slice(0, 8).join(', ') + (codes.length > 8 ? ' ... (+' + (codes.length - 8) + ')' : '') + '\n';
+        }
+        dbRef += '\nMicron (زجاجي):\n';
+        for (const [size, codes] of Object.entries(MICRON_DB)) {
+            dbRef += size + 'GB: ' + codes.join(', ') + '\n';
+        }
+
         const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
 
 STEP 1 - READ: Find the memory chip (large black chip) and read its code.
@@ -697,7 +714,11 @@ Memory chips start with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28 | Toshiba THG 
 IGNORE: Snapdragon/Qualcomm/Mediatek/SDM/SM/MT (processor) + PM/WCD/WCN (power)
 Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
 
-STEP 2 - CLASSIFY using these rules:
+STEP 2 - CLASSIFY: First check against this database. If the code matches or is very close to one listed, use that classification:
+
+${dbRef}
+
+If not found in database, use these shortcut rules:
 Samsung KM (عادي BGA): letter before 000/100/200/600/700/800/900 → N=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256
   RAM: S/2=1|6=1.5|K/1/3=2|A/B/8=3|D/4=4|C/J=6-8
 Samsung KLM (زجاجي eMMC): char 5 → A=16|B=32|C=64|D=128|E=256|F=512
@@ -1577,7 +1598,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
         // لو مفيش كود معروف - ابعت لـ Gemini
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // بناء ملخص الجداول لـ Gemini
         let dbSummary = 'جداول الأكواد العادية (BGA):\n';
@@ -1725,7 +1746,7 @@ app.post('/api/vision-ocr', async (req, res) => {
         if (!VISION_KEY) {
             // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
             console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
             const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
             const ocrPrompt = `Read ONLY the memory chip code from this image. Memory chips start with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP.\nReturn ONLY the code text, nothing else. If not found return: NOT_FOUND`;
             const result = await model.generateContent({
