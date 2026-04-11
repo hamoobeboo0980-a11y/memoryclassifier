@@ -981,6 +981,96 @@ Return JSON only:
 });
 
 // ═══════════════════════════════════════════════════════════════
+// /api/gemini-race - عين Gemini المستقلة (تصنيف بالصورة بس)
+// بتشتغل بالتوازي مع المسار الأصلي عشان نقارن الدقة
+// ═══════════════════════════════════════════════════════════════
+app.post('/api/gemini-race', async (req, res) => {
+    try {
+        const { imageBase64 } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: 'No image', code: '', storage: '', type: '' });
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const expertKnowledge = buildExpertKnowledge();
+
+        const racePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
+
+CHIP SELECTION:
+- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28/HN8 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP | Kingston
+- COMPLETELY IGNORE: Snapdragon, Qualcomm, MediaTek, SDM, SM-, MT (processor/SoC) + PM/WCD/WCN (power management)
+- Even if you can only read 1-2 characters on a chip, report exactly what you see
+Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
+
+CLASSIFICATION GUIDE:
+=== عادي (Normal BGA) ===
+Samsung KM: LINE 3, letter BEFORE 100/200/600/700/800/900 → N=8G|E=16G|X/D=32G|C/H/P=64G|G/V=128G|F/S=256G
+  RAM (same line): S/2=1GB|6=1.5GB|K/1/3=2GB|A/B/8=3GB|D/4=4GB|C/J=6-8GB
+SK Hynix H9: LINE 2, digits after first 4 chars → 17/18/19=16G|26/27=32G|52/53=64G|16=128G
+Kingston (TAIWAN): LINE 4 explicit
+SanDisk SDIN (TAIWAN): LINE 2 explicit
+
+=== زجاجي (eMMC/UFS) ===
+Samsung KLM/KLU: LINE 3, 5th char pair → AG=16G|BG=32G|CG=64G|DG=128G|EG=256G|FG=512G
+SK Hynix H26/H28/HN8: LINE 1 → 54=16G|64=32G|74=64G|88=128G|9=256G
+Toshiba THG: LINE 3 → G7=16G|G8=32G|G9=64G|T0=128G|T1=256G|T2=512G
+SanDisk SDIN (CHINA): LINE 2-3 explicit
+Micron JW/JZ: full code lookup
+YMEC: bottom-left digit → 6=32G|7=64G|8=128G|9=256G
+UNIC 08EMCP/16EMCP: last line → 05G=32G|06G=64G|07G=128G
+Kingston (CHINA): LINE 4 explicit with EMMC
+${expertKnowledge}
+Return JSON ONLY:
+{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"brief explanation"}
+If no memory chip: {"code":"NOT_FOUND","reason":"why"}`;
+
+        const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+        const result = await model.generateContent({
+            contents: [{ parts: [
+                { inlineData: { mimeType: 'image/jpeg', data: rawBase64 } },
+                { text: racePrompt }
+            ]}],
+            generationConfig: { temperature: 0 }
+        });
+
+        let text = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+        console.log('👁️ Gemini Race:', text);
+
+        let parsed = null;
+        try {
+            parsed = JSON.parse(text);
+        } catch(e1) {
+            const jsonMatch = text.match(/\{[\s\S]*?"code"[\s\S]*?\}/);
+            parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        }
+
+        if (parsed && parsed.code && parsed.code !== 'NOT_FOUND') {
+            parsed.code = cleanReadCode(parsed.code);
+            if (!parsed.ram) parsed.ram = extractRam(parsed.code);
+            if (!parsed.company) parsed.company = detectCompany(parsed.code);
+
+            // Verify against DB for confidence boost
+            const dbCheck = lookupCode(parsed.code, []);
+            if (dbCheck && dbCheck.storage) {
+                parsed.storage = dbCheck.storage;
+                parsed.type = dbCheck.type;
+                parsed.company = dbCheck.company || parsed.company;
+                parsed.confidence = 92;
+                parsed.dbVerified = true;
+            } else {
+                parsed.confidence = parsed.storage && parsed.type ? 70 : 30;
+                parsed.dbVerified = false;
+            }
+
+            return res.json(parsed);
+        }
+
+        return res.json({ code: 'NOT_FOUND', storage: '', type: '', company: '', confidence: 0 });
+    } catch (error) {
+        console.error('Gemini Race error:', error.message);
+        return res.status(500).json({ error: error.message.substring(0, 100), code: '', storage: '', type: '' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // getCandidatesForCode - دالة داخلية لجلب candidates بدون HTTP
 // ═══════════════════════════════════════════════════════════════
 function getCandidatesForCode(code) {

@@ -942,6 +942,42 @@
     </div>
   </div>
 
+  <!-- Gemini Race Panel - عين Gemini المستقلة -->
+  <div id="raceCard" style="display:none;background:var(--card);border:1px solid #7b6cff33;border-radius:16px;margin:8px 0;overflow:hidden;position:relative">
+    <div style="padding:8px 14px;border-bottom:1px solid #7b6cff33;display:flex;align-items:center;gap:6px">
+      <span style="font-size:14px">👁️</span>
+      <span style="font-size:13px;font-weight:700;background:linear-gradient(135deg,#7b6cff,#ff6b35);-webkit-background-clip:text;-webkit-text-fill-color:transparent">عين Gemini</span>
+      <span id="raceStatus" style="font-size:11px;color:var(--muted)">بتحلل...</span>
+      <span id="raceTime" style="margin-right:auto;font-size:10px;color:#555"></span>
+    </div>
+    <div id="raceBody" style="padding:12px 14px;min-height:40px">
+      <div id="raceLoading" style="text-align:center;color:var(--muted);font-size:12px">
+        <span class="led scanning-led" style="display:inline-block;width:6px;height:6px;background:#7b6cff;border-radius:50;margin-left:4px"></span>
+        جاري التحليل المستقل...
+      </div>
+      <div id="raceResult" style="display:none">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div id="raceTypeBadge" style="font-size:12px;padding:3px 10px;border-radius:8px;border:1px solid var(--border)"></div>
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <span id="raceStorage" style="font-size:24px;font-weight:900;color:var(--accent)">--</span>
+            <span style="font-size:12px;color:var(--muted)">GB</span>
+          </div>
+          <div id="raceRam" style="font-size:11px;color:var(--muted)"></div>
+        </div>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="raceCode" style="font-size:11px;color:#888;font-family:monospace;word-break:break-all"></span>
+          <span id="raceConfBadge" style="font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(123,108,255,0.15);color:#7b6cff"></span>
+        </div>
+        <div id="raceReason" style="font-size:10px;color:#555;margin-top:4px"></div>
+      </div>
+      <div id="raceError" style="display:none;text-align:center;color:#ff6b35;font-size:12px"></div>
+    </div>
+    <!-- مقارنة النتائج -->
+    <div id="raceCompare" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;font-size:11px">
+      <div id="raceCompareText" style="color:var(--muted);text-align:center"></div>
+    </div>
+  </div>
+
   <!-- Chat Section - تحت النتيجة -->
   <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;margin:8px 0;overflow:hidden">
     <div style="padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
@@ -1243,6 +1279,152 @@ function unfreezeCamera() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// 🏁 GEMINI RACE - عين Gemini المستقلة
+// بتشتغل بالتوازي مع المسار الأصلي
+// ═══════════════════════════════════════════════════════
+var _mainResult = null; // نتيجة المسار الأصلي للمقارنة
+var _raceResult = null; // نتيجة عين Gemini
+
+function resetRacePanel() {
+  _mainResult = null;
+  _raceResult = null;
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  card.style.display = 'block';
+  document.getElementById('raceLoading').style.display = 'block';
+  document.getElementById('raceResult').style.display = 'none';
+  document.getElementById('raceError').style.display = 'none';
+  document.getElementById('raceCompare').style.display = 'none';
+  document.getElementById('raceStatus').textContent = 'بتحلل...';
+  document.getElementById('raceStatus').style.color = 'var(--muted)';
+  document.getElementById('raceTime').textContent = '';
+}
+
+function showRaceResult(parsed, elapsed) {
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  document.getElementById('raceLoading').style.display = 'none';
+  document.getElementById('raceError').style.display = 'none';
+  document.getElementById('raceResult').style.display = 'block';
+  document.getElementById('raceTime').textContent = elapsed + 's';
+
+  if (parsed.storage && parsed.type) {
+    var isGlass = parsed.type === 'زجاجي';
+    document.getElementById('raceTypeBadge').textContent = isGlass ? '🔵 زجاجي' : '⚪ عادي';
+    document.getElementById('raceTypeBadge').style.background = isGlass ? 'rgba(68,138,255,0.15)' : 'rgba(255,255,255,0.06)';
+    document.getElementById('raceTypeBadge').style.color = isGlass ? '#448aff' : 'var(--text)';
+    document.getElementById('raceStorage').textContent = parsed.storage;
+    document.getElementById('raceCode').textContent = parsed.code || '';
+    document.getElementById('raceRam').textContent = parsed.ram ? '💾 RAM ' + parsed.ram + ' GB' : '';
+    var conf = parsed.confidence || 0;
+    document.getElementById('raceConfBadge').textContent = '🎯 ' + conf + '%' + (parsed.dbVerified ? ' ✅DB' : '');
+    document.getElementById('raceStatus').textContent = '✅ تم';
+    document.getElementById('raceStatus').style.color = '#00e676';
+    document.getElementById('raceReason').textContent = parsed.reason ? '📝 ' + parsed.reason : '';
+  } else {
+    document.getElementById('raceTypeBadge').textContent = '⚠️ مش واضح';
+    document.getElementById('raceTypeBadge').style.background = 'rgba(255,107,53,0.15)';
+    document.getElementById('raceTypeBadge').style.color = '#ff6b35';
+    document.getElementById('raceStorage').textContent = '?';
+    document.getElementById('raceCode').textContent = parsed.code || '';
+    document.getElementById('raceRam').textContent = '';
+    document.getElementById('raceConfBadge').textContent = '';
+    document.getElementById('raceStatus').textContent = '⚠️ جزئي';
+    document.getElementById('raceStatus').style.color = '#ffaa00';
+    document.getElementById('raceReason').textContent = parsed.reason ? '📝 ' + parsed.reason : '';
+  }
+
+  _raceResult = parsed;
+  compareResults();
+}
+
+function showRaceError(msg) {
+  var card = document.getElementById('raceCard');
+  if (!card) return;
+  document.getElementById('raceLoading').style.display = 'none';
+  document.getElementById('raceResult').style.display = 'none';
+  document.getElementById('raceError').style.display = 'block';
+  document.getElementById('raceError').textContent = '⚠️ ' + msg;
+  document.getElementById('raceStatus').textContent = '❌ فشل';
+  document.getElementById('raceStatus').style.color = '#ff4455';
+}
+
+function setMainResult(parsed) {
+  _mainResult = parsed;
+  compareResults();
+}
+
+function compareResults() {
+  if (!_mainResult || !_raceResult) return;
+  var box = document.getElementById('raceCompare');
+  var txt = document.getElementById('raceCompareText');
+  if (!box || !txt) return;
+  box.style.display = 'block';
+
+  var mainHas = _mainResult.storage && _mainResult.type;
+  var raceHas = _raceResult.storage && _raceResult.type;
+
+  if (!mainHas && !raceHas) {
+    txt.innerHTML = '🤷 الاتنين مش شايفين كود ذاكرة';
+    return;
+  }
+  if (!mainHas && raceHas) {
+    txt.innerHTML = '👁️ <b style="color:#7b6cff">عين Gemini فازت</b> - المصنّف مش لاقي بس العين شايفه';
+    return;
+  }
+  if (mainHas && !raceHas) {
+    txt.innerHTML = '⚡ <b style="color:var(--accent)">المصنّف فاز</b> - العين مش شايفه بس المصنّف لاقيه';
+    return;
+  }
+
+  // الاتنين لاقيين
+  var sameStorage = String(_mainResult.storage) === String(_raceResult.storage);
+  var sameType = _mainResult.type === _raceResult.type;
+  var sameCode = (_mainResult.code || '').toUpperCase() === (_raceResult.code || '').toUpperCase();
+  var mainConf = _mainResult.confidence || 0;
+  var raceConf = _raceResult.confidence || 0;
+
+  if (sameStorage && sameType) {
+    txt.innerHTML = '✅ <b style="color:#00e676">متفقين!</b> ' + _mainResult.storage + 'GB ' + _mainResult.type +
+      (sameCode ? '' : ' (كود مختلف: ' + _mainResult.code + ' vs ' + _raceResult.code + ')') +
+      ' [' + mainConf + '% vs ' + raceConf + '%]';
+  } else {
+    txt.innerHTML = '⚔️ <b style="color:#ff6b35">مختلفين!</b> المصنّف: ' + _mainResult.storage + 'GB ' + _mainResult.type +
+      ' [' + mainConf + '%] | العين: ' + _raceResult.storage + 'GB ' + _raceResult.type + ' [' + raceConf + '%]';
+  }
+}
+
+async function startGeminiRace(base64, startTime) {
+  resetRacePanel();
+  try {
+    // بنبعت الصورة الكاملة (مش المقصوصة) لو متاحة
+    var imageToSend = window._lastCapturedImage || base64;
+    // لو الصورة فيها data:image prefix شيلها
+    var cleanBase64 = imageToSend.includes(',') ? imageToSend.split(',')[1] : imageToSend;
+
+    var raceRes = await fetch('/api/gemini-race', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ imageBase64: cleanBase64 })
+    });
+
+    var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (!raceRes.ok) {
+      var errData = {};
+      try { errData = await raceRes.json(); } catch(e) {}
+      showRaceError((errData.error || 'فشل') + ' (' + elapsed + 's)');
+      return;
+    }
+
+    var raceData = await raceRes.json();
+    showRaceResult(raceData, elapsed);
+  } catch(e) {
+    showRaceError(e.message.substring(0, 60));
+  }
+}
+
 async function analyzeImage(base64, previewSrc) {
   if (isAnalyzing) return;
   isAnalyzing = true;
@@ -1255,11 +1437,13 @@ async function analyzeImage(base64, previewSrc) {
   showError(false);
 
   // ═══════════════════════════════════════════════════════
-  // SEQUENTIAL FLOW v28
-  // OCR أولاً (سريع) → لو فشل → Gemini fallback (أدق وأذكى)
-  // نفس منطق التصنيف ونفس ترتيب المسار
+  // SEQUENTIAL FLOW v28 + GEMINI RACE (parallel)
+  // المسار الأصلي (OCR → Gemini fallback) + عين Gemini مستقلة بالتوازي
   // ═══════════════════════════════════════════════════════
   var startTime = Date.now();
+
+  // 🏁 Fire Gemini Race in parallel (doesn't block main flow)
+  startGeminiRace(base64, startTime);
 
   // Validation Gate - التحقق من صحة النتيجة
   function validateResult(parsed) {
@@ -1279,6 +1463,7 @@ async function analyzeImage(base64, previewSrc) {
     if (parsed.step) lightLED(parsed.step);
 
     lastParsed = parsed;
+    setMainResult(parsed); // للمقارنة مع عين Gemini
     var detectedCode = parsed.code || '';
     currentCode = detectedCode;
     var manualInput = document.getElementById('manualCode');
@@ -1327,6 +1512,7 @@ async function analyzeImage(base64, previewSrc) {
     stopScanBar(false);
     showLoading(false);
     showError(errorMsg || '❌ مش شايف كود ذاكرة');
+    setMainResult({ code: '', storage: '', type: '', confidence: 0 }); // فشل - للمقارنة
     isAnalyzing = false;
     unfreezeCamera();
     if (stream && cameraActive) setTimeout(startAutoAnalysis, 2000);
