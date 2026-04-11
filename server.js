@@ -676,22 +676,11 @@ app.post('/api/lookup', (req, res) => {
 // looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
-// /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
-// Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
+// البرومبت الموحد - نفس البرومبت للمسار الأصلي وعين Gemini المستقلة
 // ═══════════════════════════════════════════════════════════════
-
-app.post('/api/analyze', async (req, res) => {
-    try {
-        const { imageBase64, learnedCodes } = req.body;
-        if (!imageBase64) return res.status(400).json({ error: "No image provided" });
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-        // ═══════════════════════════════════════════════════════
-        // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
-        // ═══════════════════════════════════════════════════════
-        const expertKnowledge = buildExpertKnowledge();
-        const singlePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
+function buildSinglePrompt() {
+    const expertKnowledge = buildExpertKnowledge();
+    return `You are an expert at reading AND classifying memory chip codes from circuit board images.
 
 STEP 1 - READ: Find the MEMORY chip and read its code.
 IMPORTANT - CHIP SELECTION:
@@ -755,6 +744,25 @@ Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"which line/rule you used e.g. Samsung KM line3 letter X before 800=32G"}
 If you can see a chip but can only read partial text (even 1-2 chars): {"code":"WHAT_YOU_SEE","storage":"","type":"","company":"","ram":null,"reason":"what I can see on chip"}
 If no memory chip found: {"code":"NOT_FOUND","reason":"why"}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// /api/analyze - v21: Single Gemini Call + RAG + Confidence Scoring
+// Gemini يقرأ ويصنف في طلب واحد + DB lookup + RAG selector
+// ═══════════════════════════════════════════════════════════════
+
+app.post('/api/analyze', async (req, res) => {
+    try {
+        const { imageBase64, learnedCodes } = req.body;
+        if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+        // ═══════════════════════════════════════════════════════
+        // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
+        // نفس البرومبت الموحد للمسار الأصلي وعين Gemini
+        // ═══════════════════════════════════════════════════════
+        const singlePrompt = buildSinglePrompt();
 
         let rawCode = '';
         let geminiStorage = '';
@@ -983,6 +991,7 @@ Return JSON only:
 // ═══════════════════════════════════════════════════════════════
 // /api/gemini-race - عين Gemini المستقلة (تصنيف بالصورة بس)
 // بتشتغل بالتوازي مع المسار الأصلي عشان نقارن الدقة
+// نفس البرومبت بالظبط - مقارنة عادلة
 // ═══════════════════════════════════════════════════════════════
 app.post('/api/gemini-race', async (req, res) => {
     try {
@@ -990,37 +999,9 @@ app.post('/api/gemini-race', async (req, res) => {
         if (!imageBase64) return res.status(400).json({ error: 'No image', code: '', storage: '', type: '' });
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-        const expertKnowledge = buildExpertKnowledge();
 
-        const racePrompt = `You are an expert at reading AND classifying memory chip codes from circuit board images.
-
-CHIP SELECTION:
-- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28/HN8 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP | Kingston
-- COMPLETELY IGNORE: Snapdragon, Qualcomm, MediaTek, SDM, SM-, MT (processor/SoC) + PM/WCD/WCN (power management)
-- Even if you can only read 1-2 characters on a chip, report exactly what you see
-Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
-
-CLASSIFICATION GUIDE:
-=== عادي (Normal BGA) ===
-Samsung KM: LINE 3, letter BEFORE 100/200/600/700/800/900 → N=8G|E=16G|X/D=32G|C/H/P=64G|G/V=128G|F/S=256G
-  RAM (same line): S/2=1GB|6=1.5GB|K/1/3=2GB|A/B/8=3GB|D/4=4GB|C/J=6-8GB
-SK Hynix H9: LINE 2, digits after first 4 chars → 17/18/19=16G|26/27=32G|52/53=64G|16=128G
-Kingston (TAIWAN): LINE 4 explicit
-SanDisk SDIN (TAIWAN): LINE 2 explicit
-
-=== زجاجي (eMMC/UFS) ===
-Samsung KLM/KLU: LINE 3, 5th char pair → AG=16G|BG=32G|CG=64G|DG=128G|EG=256G|FG=512G
-SK Hynix H26/H28/HN8: LINE 1 → 54=16G|64=32G|74=64G|88=128G|9=256G
-Toshiba THG: LINE 3 → G7=16G|G8=32G|G9=64G|T0=128G|T1=256G|T2=512G
-SanDisk SDIN (CHINA): LINE 2-3 explicit
-Micron JW/JZ: full code lookup
-YMEC: bottom-left digit → 6=32G|7=64G|8=128G|9=256G
-UNIC 08EMCP/16EMCP: last line → 05G=32G|06G=64G|07G=128G
-Kingston (CHINA): LINE 4 explicit with EMMC
-${expertKnowledge}
-Return JSON ONLY:
-{"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"brief explanation"}
-If no memory chip: {"code":"NOT_FOUND","reason":"why"}`;
+        // نفس البرومبت بالظبط الي في /api/analyze
+        const racePrompt = buildSinglePrompt();
 
         const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
         const result = await model.generateContent({
