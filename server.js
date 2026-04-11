@@ -676,69 +676,93 @@ app.post('/api/lookup', (req, res) => {
 // looksLikeMemoryCode تم دمجها مع isValidMemoryCode أعلاه (alias موجود)
 
 // ═══════════════════════════════════════════════════════════════
-// البرومبت الموحد - نفس البرومبت للمسار الأصلي وعين Gemini المستقلة
+// البرومبت الموحد - برومنت واحد في مكان واحد لكل جيميناي
 // ═══════════════════════════════════════════════════════════════
-function buildSinglePrompt() {
-    const expertKnowledge = buildExpertKnowledge();
-    return `You are an expert at reading AND classifying memory chip codes from circuit board images.
+const UNIFIED_PROMPT = `أنت خبير في شرائح الذاكرة (Memory IC chips). بتتكلم مصري.
+هذه صورة بورد موبايل عليها شرائح.
 
-STEP 1 - READ: Find the MEMORY chip and read its code.
-IMPORTANT - CHIP SELECTION:
-- Memory chips have codes starting with: Samsung KM/KLM/KLU | SK Hynix H9/H26/H28/HN8 | Toshiba THG | SanDisk SDIN | Micron JW/JZ | YMEC/TY | UNIC 08EMCP/16EMCP | Kingston
-- COMPLETELY IGNORE these chips (they are NOT memory): Snapdragon, Qualcomm, MediaTek, SDM, SM-, MT (processor/SoC) + PM/WCD/WCN (power management)
-- RAM and storage info come ONLY from the memory IC code - never from processor/SoC chips
-- If image shows full board from far away, look carefully for the memory chip among multiple chips
-- Even if you can only read 1-2 characters on a chip, report exactly what you see in the "code" field
-Correct obvious OCR misreads: O↔0, B↔8, S↔5, I↔1
+مهم جداً:
 
-STEP 2 - CLASSIFY: Once you identify the company, look at the EXACT location described below.
+دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28/HN8 أو Toshiba THG أو SanDisk SDIN أو Kingston أو YMEC أو UNIC أو Micron JW/JZ
 
+تجاهل تماماً أي ايسي رام أو بروسيسور مكتوب عليه MediaTek أو Qualcomm أو Snapdragon أو SDM أو MT
+-الكود المنقوش على ايسي الذاكرة نفسه لازم تقراه بعنايه عشان هتطلع منه بيانات الذاكرة والرام
+
+ركز في الكود الي في وسط المربع الاول ولو الصورة من بعيد وفيها شرائح كتير، اختار ايسي الذاكرة الصح واقرا الكود المنقوش الي عليه بعنايه
+
+لو الكود مش واضح قول بالظبط كل الحروف الي واضحه وعرفت تقراها من اعلى الايسي بدون تخاريف
+كل جلسه تتفتح لابد تشوف امثله التفكيك مره واحده ويخزن الي فهمه منها في دماغه عشان هتفكك بيها اي صوره طول الجلسه
+لو الكود واضح فككه ورد بالنتيجه علي طول في الشات والنتيجه
+لوفشلت دور عليه في الخبره المتراكمه بعد كده الجداول
+
+ودي اهم خبره عندك طريقه تفكيك كل الشركات
 === عادي (Normal BGA) ===
 Company: Samsung (سامسونج) - Code prefix: KM (first 2 letters = company ID)
-  Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
-  Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
-  RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D=4GB | 4 or C=6GB | J or P=8GB | L=10GB | M=12GB
+Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
+Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
+RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D or 4=4GB | C or J=6-8GB
 
 Company: SK Hynix (هاينكس) - Code prefix: H9 (first 2 letters = company ID)
-  Storage location: LINE 2 - the digits after the first 4 characters
-  Storage codes: 17/18/19=16G | 26/27=32G | 52/53=64G | 16=128G
-  RAM codes: A4=0.5GB | A8=1GB | AB=2GB | AD=3GB | AC=4GB | AE=6GB
+Storage location: LINE 2 - the digits after the first 4 characters
+Storage codes: 17/18/19=16G | 26/27=32G | 52/53=64G | 16=128G
+RAM codes: A4=0.5GB | A8=1GB | AB=2GB | AD=3GB | AC=4GB | AE=6GB
 
 Company: Kingston (كينجستون) - Origin: TAIWAN
-  Storage location: LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
+Storage location: LINE 4 left side - storage written explicitly (e.g. 16EMCP08-N = 16G)
 
 Company: SanDisk (سان ديسك) - Code prefix: SDIN - Origin: TAIWAN
-  Storage location: LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+Storage location: LINE 2 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
 
 === زجاجي (eMMC/UFS) ===
 Company: Samsung (سامسونج زجاجي) - Code prefix: KLM or KLU (first 3 letters = company ID)
-  Storage location: LINE 3 - the 5th character pair indicates storage
-  Storage codes: AG=16G | BG=32G | CG=64G | DG=128G | EG=256G | FG=512G
+Storage location: LINE 3 - the 5th character pair indicates storage
+Storage codes: AG=16G | BG=32G | CG=64G | DG=128G | EG=256G | FG=512G
 
 Company: SK Hynix (هاينكس زجاجي) - Code prefix: H26 or H28 or HN8
-  Storage location: LINE 1 - digits in the code
-  Storage codes: 54=16G | 64=32G | 74=64G | 88=128G | 9=256G
+Storage location: LINE 1 - digits in the code
+Storage codes: 54=16G | 64=32G | 74=64G | 88=128G | 9=256G
 
 Company: Toshiba (توشيبا) - Code prefix: THG - Origin: TAIWAN/JAPAN
-  Storage location: LINE 3
-  Storage codes: G7=16G | G8=32G | G9=64G | T0=128G | T1=256G | T2=512G
+Storage location: LINE 3
+Storage codes: G7=16G | G8=32G | G9=64G | T0=128G | T1=256G | T2=512G
 
 Company: SanDisk (سان ديسك زجاجي) - Code prefix: SDIN - Origin: CHINA
-  Storage location: LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
+Storage location: LINE 2 or 3 - storage written explicitly (e.g. SDINBDA4-64G = 64G)
 
 Company: Micron (ميكرون) - Code prefix: JW or JZ
-  Storage: full code lookup from table - no abbreviations
+Storage: full code lookup from table - no abbreviations
 
 Company: YMEC (يمك) - Code prefix: YMEC
-  Storage location: bottom-left of chip - digit after YMEC
-  Storage codes: YMEC6=32G | YMEC7=64G | YMEC8=128G | YMEC9=256G
+Storage location: bottom-left of chip - digit after YMEC
+Storage codes: YMEC6=32G | YMEC7=64G | YMEC8=128G | YMEC9=256G
 
 Company: UNIC (يونيك) - Code prefix: 08EMCP or 16EMCP
-  Storage location: last line
-  Storage codes: 05G=32G | 06G=64G | 07G=128G
+Storage location: last line
+Storage codes: 05G=32G | 06G=64G | 07G=128G
 
 Company: Kingston (كينجستون زجاجي) - Origin: CHINA
-  Storage location: LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
+Storage location: LINE 4 - storage explicit with EMMC (e.g. EMMC32G = 32G)
+
+عينك تكون في الكاميرا ولسانك في الشات
+إذا تم العثور على معلومات واضحة في الصورة، يقوم النظام بالرد عبر الدردشة بالنتائج المستخلصة (مثال: "النص المكتوب على IC الذاكرة هو: XYZ123").
+إذا لم يتم العثور على معلومات واضحة أو كانت غير مكتملة، يقوم النظام بالإبلاغ عن ذلك (مثال: "لم أتمكن من قراءة النص بوضوح من الصورة.").
+إعادة تحليل منطقة محددة (اختياري): يمكن للمستخدم طلب إعادة تحليل منطقة محددة في الصورة للحصول على دقة أعلى.
+واوصف دايما انت شايف ايه
+
+لما تصنف كود، قول عرفت منين
+لو المستخدم بيعلمك حاجة جديدة، قوله "تم الحفظ ✅"
+لو مش عارف كود، قوله بصراحة وساعده
+طبّق القواعد المخصصة واختصارات المدرب - دي أعلى أولوية
+لو المدرب بيعلمك اختصار، رد بـ [SHORTCUT]{"prefix":"الحروف","storage":"المساحة","type":"عادي أو زجاجي","company":"الشركة"}[/SHORTCUT]
+
+لو بيعلمك معلومة جديدة:
+[TRAIN]{"code":"الكود","storage":"المساحة","type":"النوع"}[/TRAIN]`;
+
+// buildSinglePrompt - يستخدم البرومنت الموحد + الخبرة المتراكمة + JSON format
+function buildSinglePrompt() {
+    const expertKnowledge = buildExpertKnowledge();
+    return `${UNIFIED_PROMPT}
+
 ${expertKnowledge}
 Return JSON ONLY:
 {"code":"THE_CODE","storage":"number","type":"عادي or زجاجي","company":"name","ram":"number or null","reason":"which line/rule you used e.g. Samsung KM line3 letter X before 800=32G"}
@@ -1890,57 +1914,7 @@ app.post('/api/chat', async (req, res) => {
             // ابعت الصورة لـ Gemini للتحليل
             try {
                 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-                const imagePrompt = `أنت خبير في شرائح الذاكرة (Memory IC chips). بتتكلم مصري.
-هذه صورة بورد موبايل عليها شرائح.
-
-مهم جداً:
-- دور على ايسي الذاكرة (Memory IC) بس - الشرائح اللي بتبدأ بـ Samsung KM/KLM/KLU أو SK Hynix H9/H26/H28/HN8 أو Toshiba THG أو SanDisk SDIN أو Kingston أو YMEC أو UNIC أو Micron JW/JZ
-- تجاهل تماماً أي ايسي رام أو بروسيسور مكتوب عليه MediaTek أو Qualcomm أو Snapdragon أو SDM أو MT - دول مالهمش دعوة
-- بيانات الذاكرة والرام هتستخرجهم من الكود المنقوش على ايسي الذاكرة نفسه
-- لو الصورة من بعيد وفيها شرائح كتير، اختار ايسي الذاكرة الصح
-- لو مش واضح غير حرف أو اتنين، قول بالظبط اللي شايفه على الايسي
-
-دليل مكان الاختصار لكل شركة:
-📌 عادي (BGA):
-- شركة سامسونج (Samsung) - اختصار الشركة: KM (أول حرفين من الكود)
-  مكان المساحة: السطر 3 - الحرف اللي قبل الرقم 100/200/600/700/800/900
-  اختصارات المساحة: N=8 | E=16 | X أو D=32 | C أو H أو P=64 | G أو V=128 | F أو S=256
-  اختصارات الرام (نفس السطر): S أو 2=1 | 6=1.5 | K أو 1 أو 3=2 | A أو B أو 8=3 | D=4 | 4 أو C=6 | J أو P=8 | L=10 | M=12
-- شركة هاينكس (SK Hynix) - اختصار الشركة: H9 (أول حرفين من الكود)
-  مكان المساحة: السطر 2 - الأرقام بعد أول 4 حروف
-  اختصارات المساحة: 17/18/19=16 | 26/27=32 | 52/53=64 | 16=128
-  اختصارات الرام: A4=0.5 | A8=1 | AB=2 | AD=3 | AC=4 | AE=6
-- شركة كينجستون (Kingston) - من TAIWAN
-  مكان المساحة: السطر 4 يسار - المساحة مكتوبة صريحة
-- شركة سان ديسك (SanDisk) - اختصار الشركة: SDIN - من TAIWAN
-  مكان المساحة: السطر 2 - المساحة مكتوبة صريحة
-
-📌 زجاجي (eMMC/UFS):
-- شركة سامسونج زجاجي (Samsung) - اختصار الشركة: KLM أو KLU (أول 3 حروف)
-  مكان المساحة: السطر 3 - الحرف الخامس في الكود
-  اختصارات المساحة: AG=16 | BG=32 | CG=64 | DG=128 | EG=256 | FG=512
-- شركة هاينكس زجاجي (SK Hynix) - اختصار الشركة: H26 أو H28 أو HN8
-  مكان المساحة: السطر 1
-  اختصارات المساحة: 54=16 | 64=32 | 74=64 | 88=128 | 9=256
-- شركة توشيبا (Toshiba) - اختصار الشركة: THG
-  مكان المساحة: السطر 3
-  اختصارات المساحة: G7=16 | G8=32 | G9=64 | T0=128 | T1=256 | T2=512
-- شركة سان ديسك زجاجي (SanDisk) - اختصار الشركة: SDIN - من CHINA
-  مكان المساحة: السطر 2 أو 3 - صريحة
-- شركة ميكرون (Micron) - اختصار الشركة: JW أو JZ
-  المساحة: الكود كامل من الجدول
-- شركة يمك (YMEC) - اختصار الشركة: YMEC
-  مكان المساحة: أسفل يسار - الرقم بعد YMEC
-  اختصارات المساحة: 6=32 | 7=64 | 8=128 | 9=256
-- شركة يونيك (UNIC) - اختصار الشركة: 08EMCP أو 16EMCP
-  مكان المساحة: آخر سطر
-  اختصارات المساحة: 05G=32 | 06G=64 | 07G=128
-- شركة كينجستون زجاجي (Kingston) - من CHINA
-  مكان المساحة: السطر 4 - صريحة مع EMMC
-
-1. اقرأ كود ايسي الذاكرة
-2. حلل الكود وقولي: الشركة، المساحة، النوع (عادي BGA / زجاجي EMMC)، الرام لو ممكن
-3. لو مش واضحة قولي إيه اللي شايفه بالظبط حتى لو حرف واحد وأقرب تخمين
+                const imagePrompt = `${UNIFIED_PROMPT}
 
 ${buildExpertKnowledge()}
 
@@ -2181,51 +2155,13 @@ ${buildExpertKnowledge()}
             });
         }
 
-        const chatPrompt = `أنت مساعد ذكي متخصص في شرائح الذاكرة (Memory IC chips) للهواتف.
-اسمك "مساعد البحراوي" وبتتكلم مصري.
-المدرب (الخبير) بيعلمك وأنت بتحفظ كل حاجة. أنت نسخة منه - بتتعلم منه وبتطبق اللي علمهولك.
-
-معلومات عنك:
-- بتساعد في تصنيف شرائح الذاكرة (عادي BGA / زجاجي EMMC)
-- بتعرف Samsung, SK Hynix, Toshiba, SanDisk, Micron, YMEC, UNIC, Kingston
-- العادي = BGA (بيتلحم على البورد)
-- الزجاجي = EMMC (بيتركب في سوكيت)
-- مالكش دعوة بايسي الرام أو البروسيسور (MediaTek, Qualcomm, Snapdragon) - تجاهلهم تماماً
-- بيانات الذاكرة والرام بتستخرجهم من الكود المنقوش على ايسي الذاكرة بس
-- لو الصورة من بعيد، لازم تختار ايسي الذاكرة الصح مش أي ايسي تاني
-- لو مش شايف غير حرف أو اتنين على الايسي، قول اللي شايفه بالظبط
-
-دليل مكان اختصار كل شركة (اختصار الشركة = أول حروف الكود | اختصار المساحة = في السطر المحدد):
-عادي BGA:
-- سامسونج Samsung: اختصار الشركة KM → المساحة في سطر3 (حرف قبل 100/200/600/700/800/900)
-  اختصارات الرام (نفس السطر): S أو 2=1 | 6=1.5 | K أو 1 أو 3=2 | A أو B أو 8=3 | D=4 | 4 أو C=6 | J أو P=8 | L=10 | M=12
-- هاينكس SK Hynix: اختصار الشركة H9 → المساحة في سطر2 (أرقام بعد أول 4 حروف)
-  اختصارات الرام: A4=0.5 | A8=1 | AB=2 | AD=3 | AC=4 | AE=6
-- كينجستون Kingston: من TAIWAN → المساحة في سطر4 (صريحة)
-- سان ديسك SanDisk: اختصار الشركة SDIN → من TAIWAN → المساحة في سطر2 (صريحة)
-زجاجي eMMC:
-- سامسونج Samsung: اختصار الشركة KLM أو KLU → المساحة في سطر3 (الحرف الخامس)
-- هاينكس SK Hynix: اختصار الشركة H26/H28/HN8 → المساحة في سطر1
-- توشيبا Toshiba: اختصار الشركة THG → المساحة في سطر3
-- سان ديسك SanDisk: اختصار الشركة SDIN → من CHINA → المساحة في سطر2-3 (صريحة)
-- ميكرون Micron: اختصار الشركة JW/JZ → المساحة من الكود كامل
-- يمك YMEC: اختصار الشركة YMEC → المساحة أسفل يسار
-- يونيك UNIC: → المساحة آخر سطر
-- كينجستون Kingston: من CHINA → المساحة في سطر4
+        const chatPrompt = `${UNIFIED_PROMPT}
+اسمك "مساعد البحراوي". المدرب (الخبير) بيعلمك وأنت بتحفظ كل حاجة. أنت نسخة منه - بتتعلم منه وبتطبق اللي علمهولك.
 
 ${dbSummary}${correctionsInfo}${patternsInfo}${rulesInfo}${shortcutsInfo}
 
 ${buildExpertKnowledge()}
 
-مهم جداً:
-1. لما تصنف كود، قول عرفت منين (من الجدول / من الاختصار / من تصحيح المستخدم / من اختصار المدرب / تحليلي)
-2. لو المستخدم بيعلمك حاجة جديدة (قاعدة أو معلومة أو اختصار)، قوله "تم الحفظ ✅" وأكد إنك فهمت
-3. لو المستخدم بيسأل عن كود مش عارفه، قوله بصراحة وساعده
-4. طبّق القواعد المخصصة واختصارات المدرب دايماً - دي أعلى أولوية
-5. لو المدرب بيعلمك اختصار جديد، رد بـ [SHORTCUT]{"prefix":"الحروف","storage":"المساحة","type":"عادي أو زجاجي","company":"الشركة"}[/SHORTCUT]
-
-لو المستخدم بيعلمك معلومة جديدة عن كود أو قاعدة، رد بـ JSON في آخر ردك بالشكل ده:
-[TRAIN]{"code":"الكود","storage":"المساحة","type":"عادي أو زجاجي"}[/TRAIN]
 أو لو قاعدة عامة:
 [RULE]{"rule":"القاعدة"}[/RULE]
 
