@@ -10,9 +10,31 @@ const GEMINI_KEY = process.env.GEMINI_KEY || '';
 if (!GEMINI_KEY) {
     console.warn('⚠️  GEMINI_KEY environment variable is not set! Gemini features will not work.');
     console.warn('   Set it with: export GEMINI_KEY=your_api_key_here');
+    console.warn('   Get a key from: https://aistudio.google.com/apikey');
+} else {
+    console.log('✅ GEMINI_KEY is set (starts with: ' + GEMINI_KEY.substring(0, 8) + '...)');
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+
+// Validate the API key on startup (non-blocking)
+if (GEMINI_KEY) {
+    (async () => {
+        try {
+            const testModel = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+            await testModel.generateContent({
+                contents: [{ parts: [{ text: 'Reply OK' }] }],
+                generationConfig: { temperature: 0, maxOutputTokens: 5 }
+            });
+            console.log('✅ Gemini API key is VALID and working! Model: ' + GEMINI_MODEL);
+        } catch (err) {
+            console.error('❌ Gemini API key FAILED:', err.message);
+            if (err.message.includes('API_KEY_INVALID')) {
+                console.error('   Your API key is invalid/expired. Get a new one: https://aistudio.google.com/apikey');
+            }
+        }
+    })();
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -25,6 +47,34 @@ app.get('/api/health', (req, res) => {
         geminiKeySet: !!GEMINI_KEY,
         model: GEMINI_MODEL
     });
+});
+
+// ═══ Test API key endpoint ═══
+app.get('/api/test-key', async (req, res) => {
+    if (!GEMINI_KEY) {
+        return res.json({
+            valid: false,
+            error: 'GEMINI_KEY environment variable is not set',
+            hint: 'Set GEMINI_KEY in your deployment environment (Render/Heroku/etc)'
+        });
+    }
+    try {
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+        const result = await model.generateContent({
+            contents: [{ parts: [{ text: 'Reply with only: OK' }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 10 }
+        });
+        const text = result.response.text().trim();
+        return res.json({ valid: true, response: text, model: GEMINI_MODEL, keyPrefix: GEMINI_KEY.substring(0, 8) + '...' });
+    } catch (err) {
+        return res.json({
+            valid: false,
+            error: err.message,
+            hint: err.message.includes('API_KEY_INVALID')
+                ? 'API key is invalid or expired. Get a new one from https://aistudio.google.com/apikey'
+                : 'Gemini API error - check your key and billing'
+        });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1613,6 +1663,9 @@ app.post('/api/chat', async (req, res) => {
         }
 
         // لو مفيش كود معروف - ابعت لـ Gemini
+        if (!GEMINI_KEY) {
+            return res.json({ reply: '⚠️ GEMINI_KEY مش متحط - الذكاء الاصطناعي مش هيشتغل.\nحط GEMINI_KEY في متغيرات البيئة.', source: 'system', action: 'error' });
+        }
         const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // بناء ملخص الجداول لـ Gemini
@@ -1760,6 +1813,10 @@ app.post('/api/vision-ocr', async (req, res) => {
 
         if (!VISION_KEY) {
             // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
+            if (!GEMINI_KEY) {
+                console.log('⚠️ Neither GOOGLE_VISION_KEY nor GEMINI_KEY set - OCR unavailable');
+                return res.json({ text: '', source: 'none', error: 'No OCR keys configured' });
+            }
             console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
             const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
             const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
