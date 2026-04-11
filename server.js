@@ -15,7 +15,7 @@ if (!GEMINI_KEY) {
     console.log('✅ GEMINI_KEY is set (starts with: ' + GEMINI_KEY.substring(0, 8) + '...)');
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
 
 // Validate the API key on startup (non-blocking)
 if (GEMINI_KEY) {
