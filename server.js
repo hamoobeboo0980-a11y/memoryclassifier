@@ -6,13 +6,15 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const GEMINI_KEY = process.env.GEMINI_KEY || '';
+const GEMINI_KEY = process.env.GEMINI_KEY || process.env.GEMINI_API_KEY || '';
 if (!GEMINI_KEY) {
     console.warn('⚠️  GEMINI_KEY environment variable is not set! Gemini features will not work.');
     console.warn('   Set it with: export GEMINI_KEY=your_api_key_here');
+    console.warn('   Or on Railway: set GEMINI_API_KEY in Variables');
     console.warn('   Get a key from: https://aistudio.google.com/apikey');
 } else {
-    console.log('✅ GEMINI_KEY is set (starts with: ' + GEMINI_KEY.substring(0, 8) + '...)');
+    const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
+    console.log('✅ ' + source + ' is set (starts with: ' + GEMINI_KEY.substring(0, 8) + '...)');
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
@@ -55,7 +57,7 @@ app.get('/api/test-key', async (req, res) => {
         return res.json({
             valid: false,
             error: 'GEMINI_KEY environment variable is not set',
-            hint: 'Set GEMINI_KEY in your deployment environment (Render/Heroku/etc)'
+            hint: 'Set GEMINI_KEY (or GEMINI_API_KEY) in your deployment environment (Railway/Render/etc)'
         });
     }
     try {
