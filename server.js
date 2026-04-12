@@ -6,7 +6,15 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY || "AIzaSyAbHZibxNq1bPUVHxW8aa8GvPAsMgCyzgQ");
+const GEMINI_KEY = process.env.GEMINI_KEY || process.env.GEMINI_API_KEY || '';
+if (!GEMINI_KEY) {
+    console.warn('⚠️  GEMINI_KEY (or GEMINI_API_KEY) environment variable is not set! Gemini features will not work.');
+} else {
+    const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
+    const keyLen = GEMINI_KEY.length;
+    console.log(`✅ ${source} is set (length: ${keyLen})`);
+}
+const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
