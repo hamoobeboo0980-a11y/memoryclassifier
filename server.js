@@ -14,7 +14,7 @@ if (!GEMINI_KEY) {
     console.warn('   Get a key from: https://aistudio.google.com/apikey');
 } else {
     const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
-    console.log('✅ ' + source + ' is set (length: ' + GEMINI_KEY.length + ')');
+    console.log('✅ ' + source + ' is set');
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
@@ -67,7 +67,7 @@ app.get('/api/test-key', async (req, res) => {
             generationConfig: { temperature: 0, maxOutputTokens: 10 }
         });
         const text = result.response.text().trim();
-        return res.json({ valid: true, response: text, model: GEMINI_MODEL, keyLength: GEMINI_KEY.length });
+        return res.json({ valid: true, response: text, model: GEMINI_MODEL });
     } catch (err) {
         return res.json({
             valid: false,
@@ -2162,7 +2162,7 @@ ${buildExpertKnowledge()}
 
         // لو مفيش كود معروف - ابعت لـ Gemini
         if (!GEMINI_KEY) {
-            return res.json({ reply: '⚠️ GEMINI_KEY مش متحط - الذكاء الاصطناعي مش هيشتغل.\nحط GEMINI_KEY في متغيرات البيئة.', source: 'system', action: 'error' });
+            return res.json({ reply: '⚠️ GEMINI_KEY مش متحط - الذكاء الاصطناعي مش هيشتغل.\nحط GEMINI_KEY أو GEMINI_API_KEY في متغيرات البيئة.', source: 'system', action: 'error' });
         }
         const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
