@@ -14,7 +14,7 @@ if (!GEMINI_KEY) {
     console.warn('   Get a key from: https://aistudio.google.com/apikey');
 } else {
     const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
-    console.log('✅ ' + source + ' is set (starts with: ' + GEMINI_KEY.substring(0, 8) + '...)');
+    console.log('✅ ' + source + ' is set (length: ' + GEMINI_KEY.length + ')');
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
@@ -67,7 +67,7 @@ app.get('/api/test-key', async (req, res) => {
             generationConfig: { temperature: 0, maxOutputTokens: 10 }
         });
         const text = result.response.text().trim();
-        return res.json({ valid: true, response: text, model: GEMINI_MODEL, keyPrefix: GEMINI_KEY.substring(0, 8) + '...' });
+        return res.json({ valid: true, response: text, model: GEMINI_MODEL, keyLength: GEMINI_KEY.length });
     } catch (err) {
         return res.json({
             valid: false,
