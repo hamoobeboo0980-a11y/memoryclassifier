@@ -1537,7 +1537,7 @@ function adoptRaceResult() {
     return;
   }
   // حفظ النتيجة القديمة لتسجيل التصحيح
-  var oldResult = lastParsed ? { code: lastParsed.code || '', storage: lastParsed.storage || '', type: lastParsed.type || '' } : { code: '', storage: '', type: '' };
+  var oldResult = lastParsed ? { code: lastParsed.code || '', storage: lastParsed.storage || '', type: lastParsed.type || '', step: lastParsed.step || 'unknown' } : { code: '', storage: '', type: '', step: 'unknown' };
   // تحديث الكود الحالي بكود العين
   currentCode = _raceResult.code;
   var manualInput = document.getElementById('manualCode');
@@ -1562,8 +1562,8 @@ function adoptRaceResult() {
     }, _raceResult.company || '');
     document.getElementById('confirmActions').style.display = 'flex';
     document.getElementById('correctionForm').style.display = 'none';
-    // حفظ نتيجة العين كتصحيح تلقائياً لو النتيجة القديمة كانت مختلفة
-    if (oldResult.storage && oldResult.storage !== _raceResult.storage) {
+    // حفظ نتيجة العين كتصحيح تلقائياً لو النتيجة القديمة كانت مختلفة (مساحة أو نوع)
+    if (oldResult.storage && (oldResult.storage !== _raceResult.storage || oldResult.type !== _raceResult.type)) {
       fetch('/api/correct', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
