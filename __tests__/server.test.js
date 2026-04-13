@@ -991,11 +991,12 @@ describe('Lookup functions', () => {
             expect(result.step).toBe('db');
         });
 
-        test('finds code in cache first', () => {
+        test('finds code in DB before cache (DB has priority)', () => {
             resultCache['KMQ72000SM'] = { storage: '8', type: 'عادي', company: 'Samsung' };
             const result = lookupCode('KMQ72000SM', []);
             expect(result).not.toBeNull();
-            expect(result.step).toBe('cache');
+            // DB has priority over cache now
+            expect(result.step).toBe('db');
         });
 
         test('finds corrected code from learnedCodes', () => {
@@ -1051,11 +1052,12 @@ describe('Lookup functions', () => {
             expect(result.step).toBe('correction');
         });
 
-        test('uses strict cache (no fuzzy)', () => {
+        test('finds code in DB before strict cache (DB has priority)', () => {
             resultCache['KMQ72000SM'] = { storage: '8', type: 'عادي' };
             const result = lookupCodeStrict('KMQ72000SM', []);
             expect(result).not.toBeNull();
-            expect(result.step).toBe('cache');
+            // DB has priority over cache now
+            expect(result.step).toBe('db');
         });
 
         test('returns null for completely unknown code', () => {

@@ -14,10 +14,67 @@ if (!GEMINI_KEY) {
     console.log(`✅ ${source} is set (length: ${GEMINI_KEY.length})`);
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+
+// Validate the API key on startup (non-blocking)
+if (GEMINI_KEY) {
+    (async () => {
+        try {
+            const testModel = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+            await testModel.generateContent({
+                contents: [{ parts: [{ text: 'Reply OK' }] }],
+                generationConfig: { temperature: 0, maxOutputTokens: 5 }
+            });
+            console.log('✅ Gemini API key is VALID and working! Model: ' + GEMINI_MODEL);
+        } catch (err) {
+            console.error('❌ Gemini API key FAILED:', err.message);
+            if (err.message.includes('API_KEY_INVALID')) {
+                console.error('   Your API key is invalid/expired. Get a new one: https://aistudio.google.com/apikey');
+            }
+        }
+    })();
+}
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ═══ Health check endpoint ═══
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        geminiKeySet: !!GEMINI_KEY,
+        model: GEMINI_MODEL
+    });
+});
+
+// ═══ Test API key endpoint ═══
+app.get('/api/test-key', async (req, res) => {
+    if (!GEMINI_KEY) {
+        return res.json({
+            valid: false,
+            error: 'GEMINI_KEY environment variable is not set',
+            hint: 'Set GEMINI_KEY (or GEMINI_API_KEY) in your deployment environment (Railway/Render/etc)'
+        });
+    }
+    try {
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+        const result = await model.generateContent({
+            contents: [{ parts: [{ text: 'Reply with only: OK' }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 10 }
+        });
+        const text = result.response.text().trim();
+        return res.json({ valid: true, response: text, model: GEMINI_MODEL });
+    } catch (err) {
+        return res.json({
+            valid: false,
+            error: err.message,
+            hint: err.message.includes('API_KEY_INVALID')
+                ? 'API key is invalid or expired. Get a new one from https://aistudio.google.com/apikey'
+                : 'Gemini API error - check your key and billing'
+        });
+    }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // قواعد البيانات الكاملة
@@ -429,7 +486,10 @@ function getCached(code) {
     }
     
     // 5. fuzzy - أخطاء شائعة (O/0, I/1, B/8, S/5, G/6, Z/2)
+    // بيرجع الأقرب تشابهاً مش أول واحد
     if (noDash.length >= 6) {
+        let bestKey = null;
+        let bestDiff = 2; // عتبة: حرف واحد بس (أقل من 2) في الكاش
         for (const k of Object.keys(resultCache)) {
             const kNoDash = k.split('-')[0];
             if (Math.abs(kNoDash.length - noDash.length) > 1) continue;
@@ -438,14 +498,18 @@ function getCached(code) {
             for (let i = 0; i < len; i++) {
                 if (kNoDash[i] !== noDash[i]) {
                     diff++;
-                    if (diff > 2) break;
+                    if (diff > 1) break;
                 }
             }
             if (kNoDash.length !== noDash.length) diff++;
-            if (diff <= 2) {
-                console.log('من الكاش (fuzzy):', k, 'لـ', key, '- فرق:', diff);
-                return resultCache[k];
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestKey = k;
             }
+        }
+        if (bestKey) {
+            console.log('من الكاش (fuzzy أقرب):', bestKey, 'لـ', key, '- فرق:', bestDiff);
+            return resultCache[bestKey];
         }
     }
     
@@ -468,7 +532,7 @@ function fuzzySearchInDB(code) {
     if (!code || code.length < 4) return null;
     const upper = code.toUpperCase().trim();
     let bestMatch = null;
-    let bestDist = 3; // أقصى فرق مسموح: 2
+    let bestDist = 2; // أقصى فرق مسموح: أقل من 2 (كان 3)
 
     // الأخطاء الشائعة في قراءة الشرائح - وزنها 0.3 بدل 1
     const COMMON_SWAPS = {
@@ -811,8 +875,9 @@ app.post('/api/analyze', async (req, res) => {
     try {
         const { imageBase64, learnedCodes } = req.body;
         if (!imageBase64) return res.status(400).json({ error: "No image provided" });
+        if (!GEMINI_KEY) return res.status(503).json({ error: "GEMINI_KEY not configured", code: "NOT_FOUND" });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // ═══════════════════════════════════════════════════════
         // SINGLE GEMINI CALL: قراءة + تصنيف في طلب واحد
@@ -1054,7 +1119,7 @@ app.post('/api/gemini-race', async (req, res) => {
         const { imageBase64 } = req.body;
         if (!imageBase64) return res.status(400).json({ error: 'No image', code: '', storage: '', type: '' });
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // نفس البرومبت بالظبط الي في /api/analyze
         const racePrompt = buildSinglePrompt();
@@ -1172,10 +1237,6 @@ function lookupCodeStrict(code, learnedCodes) {
     const cleanCode = cleanReadCode(code);
     const upperClean = cleanCode.toUpperCase();
     
-    // شيك الكاش - مطابقة دقيقة فقط (بدون fuzzy)
-    const cached = getCachedStrict(cleanCode);
-    if (cached) return { ...cached, step: cached.step || 'cache' };
-    
     // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1189,12 +1250,16 @@ function lookupCodeStrict(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات المبرمجة
+    // 2. الجداول والاختصارات المبرمجة (قبل الكاش)
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         dbResult.step = 'db';
         return dbResult;
     }
+    
+    // 2.1 شيك الكاش - مطابقة دقيقة فقط (بدون fuzzy)
+    const cached = getCachedStrict(cleanCode);
+    if (cached) return { ...cached, step: cached.step || 'cache' };
     
     // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
     const shortcutResult = searchTrainedShortcuts(cleanCode);
@@ -1264,10 +1329,6 @@ function lookupCode(code, learnedCodes) {
     const cleanCode = cleanReadCode(code);
     const upperClean = cleanCode.toUpperCase();
     
-    // شيك الكاش الأول
-    const cached = getCached(cleanCode);
-    if (cached) return { ...cached, step: cached.step || 'cache' };
-    
     // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1283,13 +1344,17 @@ function lookupCode(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات المبرمجة
+    // 2. الجداول والاختصارات المبرمجة (قبل الكاش)
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
         dbResult.step = 'db';
         return dbResult;
     }
+    
+    // 2.1 شيك الكاش
+    const cached = getCached(cleanCode);
+    if (cached) return { ...cached, step: cached.step || 'cache' };
     
     // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
     const shortcutResult = searchTrainedShortcuts(cleanCode);
@@ -1742,7 +1807,7 @@ function findCodeEverywhere(code, learnedCodes) {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, context, history, learnedCodes, lastImage } = req.body;
+        const { message, context, history, learnedCodes, lastImage, debugInfo } = req.body;
         if (!message) return res.status(400).json({ error: "No message" });
 
         const intent = detectIntent(message);
@@ -1945,7 +2010,7 @@ app.post('/api/chat', async (req, res) => {
             }
             // ابعت الصورة لـ Gemini للتحليل
             try {
-                const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+                const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
                 const imagePrompt = `${UNIFIED_PROMPT}
 
 ${buildExpertKnowledge()}
@@ -1992,11 +2057,31 @@ ${buildExpertKnowledge()}
 
         // ═══ نية: مصدر الأخطاء ═══
         if (intent === 'error_source') {
-            let reply = '📊 تحليل الأخطاء:\n\n';
+            let reply = '📊 تحليل آخر عملية تصنيف:\n\n';
             
-            if (errorLog.length === 0) {
-                reply += 'مفيش أخطاء مسجلة لحد دلوقتي ✅';
+            // أولاً: عرض تفاصيل آخر تحليل (debug info)
+            if (debugInfo && (debugInfo.ocrText || debugInfo.finalSource)) {
+                reply += '🔬 تفاصيل آخر تحليل:\n';
+                if (debugInfo.ocrText) {
+                    reply += '📷 OCR قرأ: ' + String(debugInfo.ocrText).substring(0, 150) + '\n';
+                }
+                if (debugInfo.finalSource) {
+                    reply += '📌 مصدر النتيجة: ' + debugInfo.finalSource + '\n';
+                }
+                if (debugInfo.searchResult) {
+                    const sr = debugInfo.searchResult;
+                    reply += '📋 النتيجة: ' + (sr.code || '?') + ' → ' + (sr.storage || '?') + 'GB ' + (sr.type || '?') + '\n';
+                }
+                if (debugInfo.fuzzyMatch) {
+                    reply += '🔄 تصحيح تقريبي: ' + debugInfo.fuzzyMatch + '\n';
+                }
+                reply += '\n';
             } else {
+                reply += '⚠️ مفيش تفاصيل تحليل متاحة - صور شريحة الأول\n\n';
+            }
+            
+            // ثانياً: إحصائيات الأخطاء المسجلة
+            if (errorLog.length > 0) {
                 // تحليل مصادر الأخطاء
                 const sources = {};
                 errorLog.forEach(e => {
@@ -2004,7 +2089,7 @@ ${buildExpertKnowledge()}
                     sources[step] = (sources[step] || 0) + 1;
                 });
                 
-                reply += 'إجمالي الأخطاء: ' + errorLog.length + '\n\n';
+                reply += '📊 إجمالي الأخطاء المسجلة: ' + errorLog.length + '\n';
                 reply += 'مصادر الأخطاء:\n';
                 for (const [step, count] of Object.entries(sources)) {
                     let stepName = step;
@@ -2018,11 +2103,13 @@ ${buildExpertKnowledge()}
                     reply += '- ' + stepName + ': ' + count + ' مرة\n';
                 }
                 
-                // آخر 5 أخطاء
-                reply += '\nآخر 5 أخطاء:\n';
-                errorLog.slice(-5).forEach(e => {
+                // آخر 3 أخطاء
+                reply += '\nآخر 3 أخطاء:\n';
+                errorLog.slice(-3).forEach(e => {
                     reply += '- ' + e.code + ': كان ' + JSON.stringify(e.wrongResult).substring(0, 50) + ' → الصح ' + e.correctStorage + 'GB ' + (e.correctType || '') + '\n';
                 });
+            } else {
+                reply += 'مفيش أخطاء مسجلة لحد دلوقتي ✅';
             }
             
             return res.json({ reply, source: 'system', action: 'error_analysis' });
@@ -2125,7 +2212,10 @@ ${buildExpertKnowledge()}
         }
 
         // لو مفيش كود معروف - ابعت لـ Gemini
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        if (!GEMINI_KEY) {
+            return res.json({ reply: '⚠️ GEMINI_KEY مش متحط - الذكاء الاصطناعي مش هيشتغل.\nحط GEMINI_KEY أو GEMINI_API_KEY في متغيرات البيئة.', source: 'system', action: 'error' });
+        }
+        const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
         // بناء ملخص الجداول لـ Gemini
         let dbSummary = 'جداول الأكواد العادية (BGA):\n';
@@ -2294,8 +2384,12 @@ app.post('/api/vision-ocr', async (req, res) => {
 
         if (!VISION_KEY) {
             // fallback: استخدم Gemini كـ OCR سريع بدون تصنيف
+            if (!GEMINI_KEY) {
+                console.log('⚠️ Neither GOOGLE_VISION_KEY nor GEMINI_KEY set - OCR unavailable');
+                return res.json({ text: '', source: 'none', error: 'قراءة الصور مش متاحة - حط GEMINI_KEY أو GOOGLE_VISION_KEY في متغيرات البيئة' });
+            }
             console.log('⚠️ GOOGLE_VISION_KEY غير موجود - fallback إلى Gemini OCR');
-            const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
             const rawBase64 = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
             const ocrPrompt = `Read ONLY the memory chip code from this image. Memory chips start with: KM, KLM, KLU, H9, H26, H28, HN, THG, SDIN, SDAD, JW, JZ, YMEC, TY, 08EMCP, 16EMCP.\nReturn ONLY the code text, nothing else. If not found return: NOT_FOUND`;
             const result = await model.generateContent({
