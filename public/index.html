@@ -1478,7 +1478,10 @@ async function startGeminiRace(base64, startTime) {
 // استخدام نتيجة عين Gemini بدل المسار الأصلي
 // ═══════════════════════════════════════════════════════
 function adoptRaceResult() {
-  if (!_raceResult || !_raceResult.code) return;
+  if (!_raceResult || !_raceResult.code) {
+    showToast('⚠️ مفيش نتيجة من العين');
+    return;
+  }
   // تحديث الكود الحالي بكود العين
   currentCode = _raceResult.code;
   var manualInput = document.getElementById('manualCode');
