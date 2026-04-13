@@ -10,9 +10,8 @@ const GEMINI_KEY = process.env.GEMINI_KEY || process.env.GEMINI_API_KEY || '';
 if (!GEMINI_KEY) {
     console.warn('⚠️  GEMINI_KEY (or GEMINI_API_KEY) environment variable is not set! Gemini features will not work.');
 } else {
-    const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
-    const keyLen = GEMINI_KEY.length;
-    console.log(`✅ ${source} is set (length: ${keyLen})`);
+    const source = process.env.GEMINI_KEY !== undefined ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
+    console.log(`✅ ${source} is set (length: ${GEMINI_KEY.length})`);
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 
