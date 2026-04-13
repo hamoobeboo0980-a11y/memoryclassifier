@@ -8,13 +8,10 @@ const PORT = process.env.PORT || 8080;
 
 const GEMINI_KEY = process.env.GEMINI_KEY || process.env.GEMINI_API_KEY || '';
 if (!GEMINI_KEY) {
-    console.warn('⚠️  GEMINI_KEY environment variable is not set! Gemini features will not work.');
-    console.warn('   Set it with: export GEMINI_KEY=your_api_key_here');
-    console.warn('   Or on Railway: set GEMINI_API_KEY in Variables');
-    console.warn('   Get a key from: https://aistudio.google.com/apikey');
+    console.warn('⚠️  GEMINI_KEY (or GEMINI_API_KEY) environment variable is not set! Gemini features will not work.');
 } else {
-    const source = process.env.GEMINI_KEY ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
-    console.log('✅ ' + source + ' is set');
+    const source = process.env.GEMINI_KEY !== undefined ? 'GEMINI_KEY' : 'GEMINI_API_KEY';
+    console.log(`✅ ${source} is set (length: ${GEMINI_KEY.length})`);
 }
 const genAI = new GoogleGenerativeAI(GEMINI_KEY);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
@@ -180,6 +177,18 @@ function searchInDB(code) {
 
     // 5) الاختصارات - Samsung عادي (KM)
     if (upperCode.startsWith('KM') && !upperCode.startsWith('KLM') && !upperCode.startsWith('KLU')) {
+        // قاعدة X المركبة: [N7]X → 8GB, [89]X → 16GB (X هنا مش حرف المساحة)
+        const xCombo = upperCode.match(/([N789])X(?:000|100|200|600|700|800|900)/i);
+        if (xCombo) {
+            const ch = xCombo[1].toUpperCase();
+            if (ch === 'N' || ch === '7') {
+                return { code: upperCode, storage: '8', type: 'عادي', company: 'Samsung', ram: extractRam(upperCode) };
+            }
+            if (ch === '8' || ch === '9') {
+                return { code: upperCode, storage: '16', type: 'عادي', company: 'Samsung', ram: extractRam(upperCode) };
+            }
+        }
+        // القاعدة العامة: حرف قبل 000/100/200/600/700/800/900
         const match = upperCode.match(/([NEXDCHPGVFS])(?:000|100|200|600|700|800|900)/i);
         if (match) {
             const letterMap = { 'N': '8', 'E': '16', 'X': '32', 'D': '32', 'C': '64', 'H': '64', 'P': '64', 'G': '128', 'V': '128', 'F': '256', 'S': '256' };
@@ -249,6 +258,17 @@ function searchInDB(code) {
     }
 
     // 11) بحث عام بالحرف + الرقم (لأي كود فيه حرف قبل رقم معروف)
+    // قاعدة X المركبة أولاً: [N7]X → 8GB, [89]X → 16GB
+    const xComboGen = upperCode.match(/([N789])X(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
+    if (xComboGen) {
+        const ch = xComboGen[1].toUpperCase();
+        if (ch === 'N' || ch === '7') {
+            return { code: upperCode, storage: '8', type: 'عادي', company: detectCompany(upperCode), ram: extractRam(upperCode) };
+        }
+        if (ch === '8' || ch === '9') {
+            return { code: upperCode, storage: '16', type: 'عادي', company: detectCompany(upperCode), ram: extractRam(upperCode) };
+        }
+    }
     const generalMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
     const generalMatch = upperCode.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
     if (generalMatch && generalMap[generalMatch[1].toUpperCase()]) {
@@ -774,6 +794,8 @@ const UNIFIED_PROMPT = `أنت خبير في شرائح الذاكرة (Memory I
 Company: Samsung (سامسونج) - Code prefix: KM (first 2 letters = company ID)
 Storage location: LINE 3 of chip - the letter BEFORE the number 100/200/600/700/800/900
 Storage codes: N=8G | E=16G | X or D=32G | C or H or P=64G | G or V=128G | F or S=256G
+⚠️ Samsung X exception: if N or 7 comes BEFORE X (like NX or 7X) → storage is 8G NOT 32G. If 8 or 9 comes BEFORE X (like 8X or 9X) → storage is 16G NOT 32G. X alone = 32G.
+Examples: KMQ7X000SA=8G (7 before X), KMFNX0012M=8G (N before X), KMQ8X000SA=16G (8 before X), KMQX60013M=32G (X alone)
 RAM codes (same line): S or 2=1GB | 6=1.5GB | K or 1 or 3=2GB | A or B or 8=3GB | D or 4=4GB | C or J=6-8GB
 
 Company: SK Hynix (هاينكس) - Code prefix: H9 (first 2 letters = company ID)
@@ -2124,7 +2146,7 @@ ${buildExpertKnowledge()}
                 // شرح إضافي عن القاعدة المستخدمة
                 const company = (sourceResult.company || detectCompany(lastCode) || '').toLowerCase();
                 if (company.includes('samsung') && lastCode.startsWith('KM')) {
-                    explanation += '📖 القاعدة: Samsung KM (عادي) - السطر 3 - الحرف قبل 100/200/600/700/800/900\nN=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256';
+                    explanation += '📖 القاعدة: Samsung KM (عادي) - السطر 3 - الحرف قبل 100/200/600/700/800/900\nN=8|E=16|X/D=32|C/H/P=64|G/V=128|F/S=256\n⚠️ استثناء: NX أو 7X=8 | 8X أو 9X=16 | X لوحده=32';
                 } else if (company.includes('samsung') && (lastCode.startsWith('KLM') || lastCode.startsWith('KLU'))) {
                     explanation += '📖 القاعدة: Samsung KLM/KLU (زجاجي) - السطر 3\nAG=16|BG=32|CG=64|DG=128|EG=256|FG=512';
                 } else if (company.includes('hynix') && lastCode.startsWith('H9')) {
@@ -2205,7 +2227,7 @@ ${buildExpertKnowledge()}
             dbSummary += cap + 'GB: ' + codes.slice(0, 5).join(', ') + (codes.length > 5 ? ' ... (و' + (codes.length - 5) + ' تاني)' : '') + '\n';
         }
 
-        dbSummary += '\nاختصارات سامسونج (الحرف قبل الرقم): N=8, E=16, X/D=32, C/H/P=64, G/V=128, F/S=256\n';
+        dbSummary += '\nاختصارات سامسونج (الحرف قبل الرقم): N=8, E=16, X/D=32, C/H/P=64, G/V=128, F/S=256\n⚠️ استثناء X المركب: NX أو 7X=8 | 8X أو 9X=16 | X لوحده=32\n';
         dbSummary += 'اختصارات YMEC (الحرف الخامس بعد YMEC): 6/G=32, 7=64, 8/B=128, 9=256 (زجاجي)\n';
         dbSummary += 'اختصارات UNIC: 05G=32, 06G=64, 07G=128 (زجاجي)\n';
 

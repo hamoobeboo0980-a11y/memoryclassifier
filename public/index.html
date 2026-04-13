@@ -1227,11 +1227,12 @@ function searchInDB(code) {
   // 4. Try shortcuts - العادي first (by company)
   // Samsung (KM): حرف قبل 100/200/600/700/800/900
   if (codeUpper.startsWith('KM')) {
-    // قاعدة خاصة: KMK + رقم + X → 7X=8GB, 8X=16GB, X بس=32GB
-    const kmkNum = codeUpper.match(/KMK(\d)X/);
-    if (kmkNum) {
-      if (kmkNum[1] === '7') return { storage: '8', type: 'عادي', fromShortcut: true };
-      if (kmkNum[1] === '8') return { storage: '16', type: 'عادي', fromShortcut: true };
+    // قاعدة X المركبة: [N7]X → 8GB, [89]X → 16GB (X هنا مش حرف المساحة)
+    const xCombo = codeUpper.match(/([N789])X(?:000|100|200|600|700|800|900)/);
+    if (xCombo) {
+      const ch = xCombo[1];
+      if (ch === 'N' || ch === '7') return { storage: '8', type: 'عادي', fromShortcut: true };
+      if (ch === '8' || ch === '9') return { storage: '16', type: 'عادي', fromShortcut: true };
     }
     // القاعدة العامة: حرف قبل 000/100/200/600/700/800/900
     const samsungMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
@@ -1295,6 +1296,13 @@ function searchInDB(code) {
   }
   
   // 5. بحث عام بالحرف + الرقم (لأي كود فيه حرف قبل رقم معروف)
+  // قاعدة X المركبة أولاً: [N7]X → 8GB, [89]X → 16GB
+  var xComboGen = codeUpper.match(/([N789])X(000|100|200|600|700|800|900|6001|7001|8001|9001)/);
+  if (xComboGen) {
+    var ch = xComboGen[1];
+    if (ch === 'N' || ch === '7') return { storage: '8', type: 'عادي', fromShortcut: true };
+    if (ch === '8' || ch === '9') return { storage: '16', type: 'عادي', fromShortcut: true };
+  }
   var generalMap = {'N':'8','E':'16','X':'32','D':'32','C':'64','H':'64','P':'64','G':'128','V':'128','F':'256','S':'256'};
   var generalMatch = codeUpper.match(/([NEXDCHPGVFS])(000|100|200|600|700|800|900|6001|7001|8001|9001)/i);
   if (generalMatch && generalMap[generalMatch[1].toUpperCase()]) {
