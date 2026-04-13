@@ -466,7 +466,10 @@ function getCached(code) {
     }
     
     // 5. fuzzy - أخطاء شائعة (O/0, I/1, B/8, S/5, G/6, Z/2)
+    // بيرجع الأقرب تشابهاً مش أول واحد
     if (noDash.length >= 6) {
+        let bestKey = null;
+        let bestDiff = 2; // عتبة: حرف واحد بس في الكاش
         for (const k of Object.keys(resultCache)) {
             const kNoDash = k.split('-')[0];
             if (Math.abs(kNoDash.length - noDash.length) > 1) continue;
@@ -475,14 +478,18 @@ function getCached(code) {
             for (let i = 0; i < len; i++) {
                 if (kNoDash[i] !== noDash[i]) {
                     diff++;
-                    if (diff > 2) break;
+                    if (diff > 1) break;
                 }
             }
             if (kNoDash.length !== noDash.length) diff++;
-            if (diff <= 2) {
-                console.log('من الكاش (fuzzy):', k, 'لـ', key, '- فرق:', diff);
-                return resultCache[k];
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestKey = k;
             }
+        }
+        if (bestKey) {
+            console.log('من الكاش (fuzzy أقرب):', bestKey, 'لـ', key, '- فرق:', bestDiff);
+            return resultCache[bestKey];
         }
     }
     
@@ -505,7 +512,7 @@ function fuzzySearchInDB(code) {
     if (!code || code.length < 4) return null;
     const upper = code.toUpperCase().trim();
     let bestMatch = null;
-    let bestDist = 3; // أقصى فرق مسموح: 2
+    let bestDist = 2; // أقصى فرق مسموح: 2 (حرفين بس)
 
     // الأخطاء الشائعة في قراءة الشرائح - وزنها 0.3 بدل 1
     const COMMON_SWAPS = {
@@ -1208,10 +1215,6 @@ function lookupCodeStrict(code, learnedCodes) {
     const cleanCode = cleanReadCode(code);
     const upperClean = cleanCode.toUpperCase();
     
-    // شيك الكاش - مطابقة دقيقة فقط (بدون fuzzy)
-    const cached = getCachedStrict(cleanCode);
-    if (cached) return { ...cached, step: cached.step || 'cache' };
-    
     // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1225,12 +1228,16 @@ function lookupCodeStrict(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات المبرمجة
+    // 2. الجداول والاختصارات المبرمجة (قبل الكاش)
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         dbResult.step = 'db';
         return dbResult;
     }
+    
+    // 2.1 شيك الكاش - مطابقة دقيقة فقط (بدون fuzzy)
+    const cached = getCachedStrict(cleanCode);
+    if (cached) return { ...cached, step: cached.step || 'cache' };
     
     // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
     const shortcutResult = searchTrainedShortcuts(cleanCode);
@@ -1300,10 +1307,6 @@ function lookupCode(code, learnedCodes) {
     const cleanCode = cleanReadCode(code);
     const upperClean = cleanCode.toUpperCase();
     
-    // شيك الكاش الأول
-    const cached = getCached(cleanCode);
-    if (cached) return { ...cached, step: cached.step || 'cache' };
-    
     // 1. تصحيحات المستخدم (أعلى أولوية) - مطابقة دقيقة
     if (learnedCodes && learnedCodes.length > 0) {
         for (const item of learnedCodes) {
@@ -1319,13 +1322,17 @@ function lookupCode(code, learnedCodes) {
         }
     }
     
-    // 2. الجداول والاختصارات المبرمجة
+    // 2. الجداول والاختصارات المبرمجة (قبل الكاش)
     const dbResult = searchInDB(cleanCode);
     if (dbResult) {
         console.log('لقيته في الجداول:', dbResult);
         dbResult.step = 'db';
         return dbResult;
     }
+    
+    // 2.1 شيك الكاش
+    const cached = getCached(cleanCode);
+    if (cached) return { ...cached, step: cached.step || 'cache' };
     
     // 2.5 اختصارات المدرب (trained shortcuts) - مسار 2
     const shortcutResult = searchTrainedShortcuts(cleanCode);
