@@ -469,7 +469,7 @@ function getCached(code) {
     // بيرجع الأقرب تشابهاً مش أول واحد
     if (noDash.length >= 6) {
         let bestKey = null;
-        let bestDiff = 2; // عتبة: حرف واحد بس في الكاش
+        let bestDiff = 2; // عتبة: حرف واحد بس (أقل من 2) في الكاش
         for (const k of Object.keys(resultCache)) {
             const kNoDash = k.split('-')[0];
             if (Math.abs(kNoDash.length - noDash.length) > 1) continue;
@@ -512,7 +512,7 @@ function fuzzySearchInDB(code) {
     if (!code || code.length < 4) return null;
     const upper = code.toUpperCase().trim();
     let bestMatch = null;
-    let bestDist = 2; // أقصى فرق مسموح: 2 (حرفين بس)
+    let bestDist = 2; // أقصى فرق مسموح: أقل من 2 (كان 3)
 
     // الأخطاء الشائعة في قراءة الشرائح - وزنها 0.3 بدل 1
     const COMMON_SWAPS = {
