@@ -1004,6 +1004,10 @@
     <div id="raceCompare" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;font-size:11px">
       <div id="raceCompareText" style="color:var(--muted);text-align:center"></div>
     </div>
+    <!-- زرار استخدام نتيجة العين -->
+    <div id="raceAdoptWrap" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;text-align:center">
+      <button id="raceAdoptBtn" onclick="adoptRaceResult()" style="background:linear-gradient(135deg,#7b6cff,#9b8cff);color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(123,108,255,0.3)">👁️ استخدم كود العين</button>
+    </div>
   </div>
 
   <!-- Chat Section - تحت النتيجة -->
@@ -1334,6 +1338,8 @@ function resetRacePanel() {
   document.getElementById('raceResult').style.display = 'none';
   document.getElementById('raceError').style.display = 'none';
   document.getElementById('raceCompare').style.display = 'none';
+  var adoptWrap = document.getElementById('raceAdoptWrap');
+  if (adoptWrap) adoptWrap.style.display = 'none';
   document.getElementById('raceStatus').textContent = 'بتحلل...';
   document.getElementById('raceStatus').style.color = 'var(--muted)';
   document.getElementById('raceTime').textContent = '';
@@ -1375,6 +1381,11 @@ function showRaceResult(parsed, elapsed) {
 
   _raceResult = parsed;
   compareResults();
+  // إظهار زرار الاعتماد لو العين جابت كود صالح
+  var adoptWrap = document.getElementById('raceAdoptWrap');
+  if (adoptWrap) {
+    adoptWrap.style.display = (parsed.code && parsed.code.length >= 4) ? 'block' : 'none';
+  }
 }
 
 function showRaceError(msg) {
@@ -1461,6 +1472,47 @@ async function startGeminiRace(base64, startTime) {
   } catch(e) {
     showRaceError(e.message.substring(0, 60));
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// استخدام نتيجة عين Gemini بدل المسار الأصلي
+// ═══════════════════════════════════════════════════════
+function adoptRaceResult() {
+  if (!_raceResult || !_raceResult.code) return;
+  // تحديث الكود الحالي بكود العين
+  currentCode = _raceResult.code;
+  var manualInput = document.getElementById('manualCode');
+  if (manualInput) manualInput.value = currentCode;
+  // تحديث lastParsed بنتيجة العين
+  lastParsed = {
+    code: _raceResult.code,
+    storage: _raceResult.storage || '',
+    type: _raceResult.type || '',
+    company: _raceResult.company || '',
+    ram: _raceResult.ram || null,
+    step: 'gemini_race',
+    confidence: _raceResult.confidence || 0
+  };
+  // تحديث العرض الرئيسي
+  if (_raceResult.storage && _raceResult.type) {
+    displayResult(currentCode, {
+      storage: _raceResult.storage,
+      type: _raceResult.type,
+      ram: _raceResult.ram || null,
+      capacity: _raceResult.storage + (_raceResult.type === 'عادي' ? '+?' : '')
+    }, _raceResult.company || '');
+    document.getElementById('confirmActions').style.display = 'flex';
+    document.getElementById('correctionForm').style.display = 'none';
+  } else {
+    displayResult(currentCode, null, _raceResult.company || '');
+    document.getElementById('confirmActions').style.display = 'none';
+    document.getElementById('correctionForm').style.display = 'block';
+  }
+  // إخفاء الزرار وإظهار رسالة
+  var wrap = document.getElementById('raceAdoptWrap');
+  if (wrap) wrap.style.display = 'none';
+  addChatMsg('المساعد', '👁️ تم اعتماد كود العين: ' + currentCode + (_raceResult.storage ? ' = ' + _raceResult.storage + 'GB ' + _raceResult.type : ''), 'bot');
+  showToast('تم اعتماد كود العين ✓');
 }
 
 async function analyzeImage(base64, previewSrc) {
