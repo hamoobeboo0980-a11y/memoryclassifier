@@ -1004,6 +1004,16 @@
     <div id="raceCompare" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;font-size:11px">
       <div id="raceCompareText" style="color:var(--muted);text-align:center"></div>
     </div>
+    <!-- معلومات التشخيص -->
+    <div id="debugInfoWrap" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;font-size:10px">
+      <div style="color:#7b6cff;font-weight:700;margin-bottom:4px;cursor:pointer" onclick="toggleDebugDetails()">🔬 تفاصيل التحليل <span id="debugToggle">▼</span></div>
+      <div id="debugDetails" style="display:none;color:var(--muted);line-height:1.7;direction:rtl;text-align:right">
+        <div>📷 <b>OCR قرأ:</b> <span id="debugOcrText" style="font-family:monospace;color:#888;word-break:break-all"></span></div>
+        <div>🔍 <b>البحث:</b> <span id="debugSearchStep" style="color:#888"></span></div>
+        <div>📊 <b>النتيجة:</b> <span id="debugSearchResult" style="color:#888"></span></div>
+        <div id="debugFuzzyRow" style="display:none">🔄 <b>تصحيح تقريبي:</b> <span id="debugFuzzyMatch" style="color:#ff6b35"></span></div>
+      </div>
+    </div>
     <!-- زرار استخدام نتيجة العين -->
     <div id="raceAdoptWrap" style="display:none;padding:6px 14px 10px;border-top:1px solid #7b6cff22;text-align:center">
       <button id="raceAdoptBtn" onclick="adoptRaceResult()" style="background:linear-gradient(135deg,#7b6cff,#9b8cff);color:#fff;border:none;border-radius:10px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(123,108,255,0.3)">👁️ استخدم كود العين</button>
@@ -1338,6 +1348,8 @@ function resetRacePanel() {
   document.getElementById('raceResult').style.display = 'none';
   document.getElementById('raceError').style.display = 'none';
   document.getElementById('raceCompare').style.display = 'none';
+  var debugWrap = document.getElementById('debugInfoWrap');
+  if (debugWrap) debugWrap.style.display = 'none';
   var adoptWrap = document.getElementById('raceAdoptWrap');
   if (adoptWrap) adoptWrap.style.display = 'none';
   document.getElementById('raceStatus').textContent = 'بتحلل...';
@@ -1444,6 +1456,48 @@ function compareResults() {
   }
 }
 
+function toggleDebugDetails() {
+  var details = document.getElementById('debugDetails');
+  var toggle = document.getElementById('debugToggle');
+  if (!details) return;
+  if (details.style.display === 'none') {
+    details.style.display = 'block';
+    if (toggle) toggle.textContent = '▲';
+  } else {
+    details.style.display = 'none';
+    if (toggle) toggle.textContent = '▼';
+  }
+}
+
+function updateDebugPanel() {
+  var info = window._lastDebugInfo;
+  if (!info) return;
+  var wrap = document.getElementById('debugInfoWrap');
+  if (!wrap) return;
+  // أظهر البانل لو فيه معلومات
+  if (info.ocrText || info.searchStep || info.finalSource) {
+    wrap.style.display = 'block';
+  }
+  var ocrEl = document.getElementById('debugOcrText');
+  var stepEl = document.getElementById('debugSearchStep');
+  var resultEl = document.getElementById('debugSearchResult');
+  var fuzzyRow = document.getElementById('debugFuzzyRow');
+  var fuzzyEl = document.getElementById('debugFuzzyMatch');
+  if (ocrEl) ocrEl.textContent = info.ocrText ? info.ocrText.substring(0, 150) : '(مفيش OCR)';
+  if (stepEl) stepEl.textContent = info.finalSource || info.searchStep || '—';
+  if (resultEl && info.searchResult) {
+    resultEl.textContent = (info.searchResult.code || '?') + ' → ' + (info.searchResult.storage || '?') + 'GB ' + (info.searchResult.type || '?');
+  } else if (resultEl) {
+    resultEl.textContent = '—';
+  }
+  if (fuzzyEl && info.fuzzyMatch) {
+    fuzzyRow.style.display = 'block';
+    fuzzyEl.textContent = info.fuzzyMatch;
+  } else if (fuzzyRow) {
+    fuzzyRow.style.display = 'none';
+  }
+}
+
 async function startGeminiRace(base64, startTime) {
   resetRacePanel();
   try {
@@ -1482,6 +1536,8 @@ function adoptRaceResult() {
     showToast('⚠️ مفيش نتيجة من العين');
     return;
   }
+  // حفظ النتيجة القديمة لتسجيل التصحيح
+  var oldResult = lastParsed ? { code: lastParsed.code || '', storage: lastParsed.storage || '', type: lastParsed.type || '' } : { code: '', storage: '', type: '' };
   // تحديث الكود الحالي بكود العين
   currentCode = _raceResult.code;
   var manualInput = document.getElementById('manualCode');
@@ -1506,6 +1562,28 @@ function adoptRaceResult() {
     }, _raceResult.company || '');
     document.getElementById('confirmActions').style.display = 'flex';
     document.getElementById('correctionForm').style.display = 'none';
+    // حفظ نتيجة العين كتصحيح تلقائياً لو النتيجة القديمة كانت مختلفة
+    if (oldResult.storage && oldResult.storage !== _raceResult.storage) {
+      fetch('/api/correct', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          code: currentCode,
+          wrongResult: oldResult,
+          correctStorage: _raceResult.storage,
+          correctType: _raceResult.type,
+          correctRam: _raceResult.ram || null,
+          step: oldResult.step || 'unknown'
+        })
+      }).catch(function(e){ console.log('adopt correct err', e); });
+    }
+    // حفظ في الكاش كمان
+    codeCache[currentCode.toUpperCase()] = { storage: _raceResult.storage, type: _raceResult.type, ram: _raceResult.ram || null, company: _raceResult.company || '' };
+    fetch('/api/confirm', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ code: currentCode, storage: _raceResult.storage, type: _raceResult.type, company: _raceResult.company || '', ram: _raceResult.ram || null, step: 'gemini_race' })
+    }).then(function(){ updateCacheCount(); }).catch(function(e){ console.log('adopt confirm err', e); });
   } else {
     displayResult(currentCode, null, _raceResult.company || '');
     document.getElementById('confirmActions').style.display = 'none';
@@ -1514,8 +1592,8 @@ function adoptRaceResult() {
   // إخفاء الزرار وإظهار رسالة
   var wrap = document.getElementById('raceAdoptWrap');
   if (wrap) wrap.style.display = 'none';
-  addChatMsg('المساعد', '👁️ تم اعتماد كود العين: ' + currentCode + (_raceResult.storage ? ' = ' + _raceResult.storage + 'GB ' + _raceResult.type : ''), 'bot');
-  showToast('تم اعتماد كود العين ✓');
+  addChatMsg('المساعد', '👁️ تم اعتماد كود العين وحفظه كتصحيح: ' + currentCode + (_raceResult.storage ? ' = ' + _raceResult.storage + 'GB ' + _raceResult.type : ''), 'bot');
+  showToast('تم اعتماد وحفظ كود العين ✓');
 }
 
 async function analyzeImage(base64, previewSrc) {
@@ -1528,6 +1606,17 @@ async function analyzeImage(base64, previewSrc) {
   showLoading(true);
   showResult(false);
   showError(false);
+
+  // حفظ معلومات التحليل للتشخيص (debug info)
+  window._lastDebugInfo = {
+    ocrText: '',
+    ocrSource: '',
+    searchStep: '',
+    searchResult: null,
+    fuzzyMatch: '',
+    finalSource: '',
+    timestamp: new Date().toISOString()
+  };
 
   // ═══════════════════════════════════════════════════════
   // SEQUENTIAL FLOW v28 + GEMINI RACE (parallel)
@@ -1557,6 +1646,7 @@ async function analyzeImage(base64, previewSrc) {
 
     lastParsed = parsed;
     setMainResult(parsed); // للمقارنة مع عين Gemini
+    updateDebugPanel(); // تحديث بانل التشخيص
     var detectedCode = parsed.code || '';
     currentCode = detectedCode;
     var manualInput = document.getElementById('manualCode');
@@ -1605,6 +1695,7 @@ async function analyzeImage(base64, previewSrc) {
     showLoading(false);
     showError(errorMsg || '❌ مش شايف كود ذاكرة');
     setMainResult({ code: '', storage: '', type: '', confidence: 0 }); // فشل - للمقارنة
+    updateDebugPanel(); // تحديث بانل التشخيص حتى لو فشل
     isAnalyzing = false;
     // الصورة تفضل ثابتة - المستخدم يرجع الكاميرا بالزرار
   }
@@ -1628,6 +1719,10 @@ async function analyzeImage(base64, previewSrc) {
         var ocrText = (visionData.text || '').trim();
         console.log('🔤 Vision OCR قرأ:', ocrText.substring(0, 200), '| source:', visionData.source);
 
+        // حفظ نص OCR للتشخيص
+        window._lastDebugInfo.ocrText = ocrText;
+        window._lastDebugInfo.ocrSource = visionData.source || 'vision';
+
         if (ocrText && ocrText.length >= 3) {
           // تنظيف وبحث في DB
           var lines = ocrText.split(/[\n\r\s]+/).map(function(l) { return l.trim(); }).filter(function(l) { return l.length >= 3; });
@@ -1644,6 +1739,9 @@ async function analyzeImage(base64, previewSrc) {
                 company: company, ram: localResult.ram || null,
                 step: 'vision_db', confidence: 93
               };
+              window._lastDebugInfo.searchStep = 'vision_db';
+              window._lastDebugInfo.searchResult = { code: line, storage: localResult.storage, type: localResult.type };
+              window._lastDebugInfo.finalSource = 'OCR → DB محلي';
               break;
             }
           }
@@ -1663,6 +1761,10 @@ async function analyzeImage(base64, previewSrc) {
                   type: lookupData.type, company: lookupData.company || '',
                   ram: lookupData.ram || null, step: 'vision_lookup', confidence: 91
                 };
+                window._lastDebugInfo.searchStep = lookupData.source || 'vision_lookup';
+                window._lastDebugInfo.searchResult = { code: lookupData.code || ocrText, storage: lookupData.storage, type: lookupData.type };
+                window._lastDebugInfo.fuzzyMatch = lookupData.suggestion || '';
+                window._lastDebugInfo.finalSource = 'OCR → سيرفر (' + (lookupData.source || 'lookup') + ')';
               }
             }
           }
@@ -1707,6 +1809,12 @@ async function analyzeImage(base64, previewSrc) {
       if (!parsed.confidence) {
         parsed.confidence = (parsed.storage && parsed.type) ? 70 : 30;
       }
+
+      // حفظ معلومات Gemini للتشخيص
+      window._lastDebugInfo.searchStep = parsed.step || 'gemini';
+      window._lastDebugInfo.searchResult = { code: parsed.code, storage: parsed.storage, type: parsed.type };
+      window._lastDebugInfo.finalSource = 'Gemini (' + (parsed.step || 'analyze') + ')';
+      if (parsed.suggestion) window._lastDebugInfo.fuzzyMatch = parsed.suggestion;
 
       if (parsed.code && isValidCode(parsed.code)) {
         if (parsed.storage && parsed.type) {
@@ -2830,6 +2938,7 @@ async function processChat(userMsg) {
           type: (lastParsed && lastParsed.type) || '',
           company: (lastParsed && lastParsed.company) || ''
         },
+        debugInfo: window._lastDebugInfo || null,
         history: chatHistory.slice(-10),
         learnedCodes: cloudLearned,
         lastImage: window._lastCapturedImage || null

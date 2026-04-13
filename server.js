@@ -1785,7 +1785,7 @@ function findCodeEverywhere(code, learnedCodes) {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, context, history, learnedCodes, lastImage } = req.body;
+        const { message, context, history, learnedCodes, lastImage, debugInfo } = req.body;
         if (!message) return res.status(400).json({ error: "No message" });
 
         const intent = detectIntent(message);
@@ -2035,11 +2035,31 @@ ${buildExpertKnowledge()}
 
         // ═══ نية: مصدر الأخطاء ═══
         if (intent === 'error_source') {
-            let reply = '📊 تحليل الأخطاء:\n\n';
+            let reply = '📊 تحليل آخر عملية تصنيف:\n\n';
             
-            if (errorLog.length === 0) {
-                reply += 'مفيش أخطاء مسجلة لحد دلوقتي ✅';
+            // أولاً: عرض تفاصيل آخر تحليل (debug info)
+            if (debugInfo && (debugInfo.ocrText || debugInfo.finalSource)) {
+                reply += '🔬 تفاصيل آخر تحليل:\n';
+                if (debugInfo.ocrText) {
+                    reply += '📷 OCR قرأ: ' + String(debugInfo.ocrText).substring(0, 150) + '\n';
+                }
+                if (debugInfo.finalSource) {
+                    reply += '📌 مصدر النتيجة: ' + debugInfo.finalSource + '\n';
+                }
+                if (debugInfo.searchResult) {
+                    const sr = debugInfo.searchResult;
+                    reply += '📋 النتيجة: ' + (sr.code || '?') + ' → ' + (sr.storage || '?') + 'GB ' + (sr.type || '?') + '\n';
+                }
+                if (debugInfo.fuzzyMatch) {
+                    reply += '🔄 تصحيح تقريبي: ' + debugInfo.fuzzyMatch + '\n';
+                }
+                reply += '\n';
             } else {
+                reply += '⚠️ مفيش تفاصيل تحليل متاحة - صور شريحة الأول\n\n';
+            }
+            
+            // ثانياً: إحصائيات الأخطاء المسجلة
+            if (errorLog.length > 0) {
                 // تحليل مصادر الأخطاء
                 const sources = {};
                 errorLog.forEach(e => {
@@ -2047,7 +2067,7 @@ ${buildExpertKnowledge()}
                     sources[step] = (sources[step] || 0) + 1;
                 });
                 
-                reply += 'إجمالي الأخطاء: ' + errorLog.length + '\n\n';
+                reply += '📊 إجمالي الأخطاء المسجلة: ' + errorLog.length + '\n';
                 reply += 'مصادر الأخطاء:\n';
                 for (const [step, count] of Object.entries(sources)) {
                     let stepName = step;
@@ -2061,11 +2081,13 @@ ${buildExpertKnowledge()}
                     reply += '- ' + stepName + ': ' + count + ' مرة\n';
                 }
                 
-                // آخر 5 أخطاء
-                reply += '\nآخر 5 أخطاء:\n';
-                errorLog.slice(-5).forEach(e => {
+                // آخر 3 أخطاء
+                reply += '\nآخر 3 أخطاء:\n';
+                errorLog.slice(-3).forEach(e => {
                     reply += '- ' + e.code + ': كان ' + JSON.stringify(e.wrongResult).substring(0, 50) + ' → الصح ' + e.correctStorage + 'GB ' + (e.correctType || '') + '\n';
                 });
+            } else {
+                reply += 'مفيش أخطاء مسجلة لحد دلوقتي ✅';
             }
             
             return res.json({ reply, source: 'system', action: 'error_analysis' });
